@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photobooth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/photobooth.css') }}">
+</head>
+<body>
+    <div class="photobooth-container">
+        <div class="header">
+            <a href="{{ url_for('index') }}" class="back-button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Kembali
+            </a>
+            <h1>PHOTOBOOTH</h1>
+        </div>
+        
+        <div class="camera-section">
+            <div class="camera-container">
+                <video id="video" autoplay playsinline></video>
+                <canvas id="canvas" style="display: none;"></canvas>
+                <div id="preview" class="preview-container" style="display: none;">
+                    <img id="preview-image" src="" alt="Preview">
+                </div>
+                
+                <!-- Countdown overlay -->
+                <div id="countdown" class="countdown" style="display: none;">
+                    <span id="countdown-number">3</span>
+                </div>
+                
+                <!-- Flash effect -->
+                <div id="flash" class="flash"></div>
+            </div>
+            
+            <div class="controls">
+                <button id="capture-btn" class="control-button capture">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="12" r="10"/>
+                    </svg>
+                    Ambil Foto
+                </button>
+                
+                <div id="preview-controls" style="display: none;">
+                    <button id="retake-btn" class="control-button retake">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                            <path d="M21 3v5h-5"/>
+                        </svg>
+                        Ulangi
+                    </button>
+                    <button id="save-btn" class="control-button save">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                            <polyline points="17 21 17 13 7 13 7 21"/>
+                            <polyline points="7 3 7 8 15 8"/>
+                        </svg>
+                        Simpan
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Status message -->
+            <div id="status-message" class="status-message"></div>
+        </div>
+        
+        <!-- Gallery Section -->
+        <div class="gallery-section">
+            <h2>Galeri Foto Terbaru</h2>
+            <div id="gallery" class="gallery-grid">
+                <!-- Photos will be loaded here dynamically -->
+            </div>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/photobooth.js') }}"></script>
+</body>
+</html>
