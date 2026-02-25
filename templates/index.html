@@ -3,152 +3,327 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photo Station Display</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style-v2.css') }}">
+    <title>Digital Signage - {{ device_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <div class="container">
-        <!-- Left Sidebar -->
-        <div class="sidebar">
-            <!-- Logo Section -->
-            <div class="logo-section">
-                {% if settings and settings['logo1_path'] %}
-                <img src="{{ url_for('static', filename='logos/logo1.png') }}" alt="Logo 1" class="logo" onerror="this.style.display='none'">
-                {% endif %}
-                {% if settings and settings['logo2_path'] %}
-                <img src="{{ url_for('static', filename='logos/logo2.png') }}" alt="Logo 2" class="logo" onerror="this.style.display='none'">
-                {% endif %}
-            </div>
-            
-            <!-- Date Time Section -->
-            <div class="datetime-section">
-                <div class="time" id="current-time">1:30</div>
-                <div class="day" id="current-day">Selasa</div>
-                <div class="date" id="current-date">Februari 03</div>
-            </div>
-            
-            <!-- Agenda List - UNLIMITED SCROLL -->
-            <div class="agenda-list" id="agenda-list">
-                {% for agenda in agendas %}
-                <div class="agenda-item" data-position="{{ agenda['position'] }}" data-id="{{ agenda['id'] }}">
-                    <div class="agenda-title">{{ agenda['title'] }}</div>
-                    <div class="agenda-description">{{ agenda['description'] }}</div>
-                    <div class="agenda-date">{{ agenda['event_date'] }}</div>
-                </div>
+    <!-- Main Display Container -->
+    <div id="main-display">
+        <!-- Templates will be dynamically loaded here -->
+    </div>
+
+    <!-- Advertisement Popup (bottom-right by default) -->
+    <div id="ad-popup" class="ad-popup hidden">
+        <div class="ad-content">
+            <img id="ad-image" class="hidden" src="" alt="Advertisement">
+            <video id="ad-video" class="hidden" autoplay muted></video>
+        </div>
+        <button id="ad-close" class="ad-close">✕</button>
+    </div>
+
+    <!-- Running News Ticker -->
+    <div id="news-ticker" class="news-ticker">
+        <div class="ticker-wrap">
+            <div class="ticker-content">
+                {% for item in news %}
+                <span class="ticker-item">{{ item.content }}</span>
                 {% endfor %}
             </div>
         </div>
+    </div>
+
+    <!-- Photo Booth Button (bottom center) -->
+    <button id="photobooth-btn" class="photobooth-btn">
+        📸 PHOTO BOOTH
+    </button>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        // =====================================================
+        // CONFIGURATION & GLOBAL VARIABLES
+        // =====================================================
         
-        <!-- Main Content Area - FULL WIDTH -->
-        <div class="main-content">
-            <!-- Media Display Area -->
-            <div class="media-display" id="media-display">
-                {% if agendas and agendas|length > 0 %}
-                    {% if agendas[0]['media_type'] == 'photo' %}
-                    <img src="{{ url_for('static', filename=agendas[0]['media_path'].replace('static/', '')) }}" 
-                         alt="{{ agendas[0]['title'] }}" 
-                         class="media-content active"
-                         onerror="this.src='{{ url_for('static', filename='uploads/placeholder.jpg') }}'">
-                    {% elif agendas[0]['media_type'] == 'video' %}
-                    <video class="media-content active" autoplay muted loop>
-                        <source src="{{ url_for('static', filename=agendas[0]['media_path'].replace('static/', '')) }}" type="video/mp4">
-                    </video>
-                    {% endif %}
-                {% else %}
-                <div class="placeholder-content">
-                    <p>Tidak ada agenda aktif</p>
-                </div>
-                {% endif %}
-            </div>
+        const CONFIG = {
+            templates: {{ templates|tojson }},
+            advertisements: {{ ads|tojson }},
+            agendas: {{ agendas|tojson }},
+            currentTemplateIndex: 0,
+            currentAdIndex: 0,
+            templateTimer: null,
+            adTimer: null,
+            adTriggerTimer: null,
+        };
+
+        // =====================================================
+        // TEMPLATE DISPLAY SYSTEM
+        // =====================================================
+        
+        function initDisplay() {
+            console.log('🚀 Initializing display system...');
+            console.log('📋 Templates:', CONFIG.templates.length);
+            console.log('📢 Advertisements:', CONFIG.advertisements.length);
             
-            <!-- News Ticker - SMALLER -->
-            <div class="news-section">
-                <div class="news-title">Berita</div>
-                <div class="news-ticker-wrapper">
-                    <div class="news-ticker" id="news-ticker">
-                        {% for item in news %}
-                        <div class="news-item">{{ item['content'] }}</div>
-                        {% endfor %}
+            if (CONFIG.templates.length === 0) {
+                showError('No active templates found');
+                return;
+            }
+            
+            // Start displaying templates
+            displayTemplate(0);
+        }
+
+        function displayTemplate(index) {
+            // Loop back to start
+            if (index >= CONFIG.templates.length) {
+                index = 0;
+            }
+            
+            CONFIG.currentTemplateIndex = index;
+            const template = CONFIG.templates[index];
+            
+            console.log(`🎬 Displaying template ${index + 1}/${CONFIG.templates.length}: ${template.template_name}`);
+            console.log(`   Type: ${template.template_type}, Duration: ${template.duration}s`);
+            
+            // Clear current display
+            const display = document.getElementById('main-display');
+            display.innerHTML = '';
+            
+            // Display based on type
+            switch(template.template_type) {
+                case 'html':
+                    displayHTMLTemplate(template);
+                    break;
+                case 'image':
+                    displayImageTemplate(template);
+                    break;
+                case 'video':
+                    displayVideoTemplate(template);
+                    break;
+                default:
+                    console.error('Unknown template type:', template.template_type);
+            }
+            
+            // Schedule advertisement popup
+            scheduleAdvertisement(template.duration);
+            
+            // Schedule next template
+            clearTimeout(CONFIG.templateTimer);
+            CONFIG.templateTimer = setTimeout(() => {
+                displayTemplate(index + 1);
+            }, template.duration * 1000);
+        }
+
+        function displayHTMLTemplate(template) {
+            const display = document.getElementById('main-display');
+            display.className = 'template-html';
+            
+            // Create HTML template layout (agenda layout)
+            const agendas = CONFIG.agendas;
+            
+            let html = `
+                <div class="html-template">
+                    <div class="template-header">
+                        <h1>${template.template_name}</h1>
+                    </div>
+                    <div class="agenda-grid">
+            `;
+            
+            agendas.forEach((agenda, i) => {
+                if (i < 3) {  // Max 3 agendas
+                    html += `
+                        <div class="agenda-card">
+                            <div class="agenda-media">
+                                ${agenda.media_type === 'photo' 
+                                    ? `<img src="/${agenda.media_path}" alt="${agenda.title}">`
+                                    : `<video src="/${agenda.media_path}" autoplay muted loop></video>`
+                                }
+                            </div>
+                            <div class="agenda-content">
+                                <h2>${agenda.title}</h2>
+                                <p>${agenda.description}</p>
+                                <div class="agenda-date">📅 ${agenda.event_date}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            });
+            
+            html += `
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- FLOATING BARCODE - POJOK KANAN BAWAH -->
-    {% if settings and settings['barcode_path'] %}
-    <div class="floating-barcode">
-        <img src="{{ url_for('static', filename='logos/barcode.png') }}" 
-             alt="QR Code"
-             onerror="this.style.display='none'">
-    </div>
-    {% endif %}
-    
-    <!-- FLOATING MENU BUTTON - SMARTWATCH STYLE -->
-    <div class="floating-menu-button" id="menu-button">
-        <div class="menu-dots">
-            <span></span>
-            <span></span>
-            <span></span>
-        </div>
-    </div>
-    
-    <!-- FLOATING MENU APPS -->
-    <div class="floating-menu" id="floating-menu">
-        <a href="{{ url_for('photobooth') }}" class="menu-app camera">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                <circle cx="12" cy="13" r="4"></circle>
-            </svg>
-            <span class="menu-app-label">Photobooth</span>
-        </a>
+            `;
+            
+            display.innerHTML = html;
+        }
+
+        function displayImageTemplate(template) {
+            const display = document.getElementById('main-display');
+            display.className = 'template-image';
+            
+            display.innerHTML = `
+                <div class="image-template">
+                    <img src="/${template.file_path}" alt="${template.template_name}">
+                </div>
+            `;
+        }
+
+        function displayVideoTemplate(template) {
+            const display = document.getElementById('main-display');
+            display.className = 'template-video';
+            
+            display.innerHTML = `
+                <div class="video-template">
+                    <video src="/${template.file_path}" autoplay muted loop></video>
+                </div>
+            `;
+        }
+
+        // =====================================================
+        // ADVERTISEMENT POPUP SYSTEM
+        // =====================================================
         
-        <div class="menu-app game" onclick="alert('Game feature coming soon!')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="2" y="7" width="20" height="15" rx="2" ry="2"></rect>
-                <polyline points="17 2 12 7 7 2"></polyline>
-            </svg>
-            <span class="menu-app-label">Games</span>
-        </div>
+        function scheduleAdvertisement(templateDuration) {
+            // Clear previous ad timers
+            clearTimeout(CONFIG.adTriggerTimer);
+            
+            if (CONFIG.advertisements.length === 0) {
+                console.log('⚠️  No advertisements available');
+                return;
+            }
+            
+            // Get random ad
+            const ad = CONFIG.advertisements[CONFIG.currentAdIndex];
+            const triggerTime = ad.trigger_time || 10; // Default 10 seconds before end
+            
+            // Calculate when to show ad (template duration - trigger time)
+            const showAdAt = (templateDuration - triggerTime) * 1000;
+            
+            console.log(`📢 Advertisement scheduled: Show in ${showAdAt/1000}s`);
+            
+            CONFIG.adTriggerTimer = setTimeout(() => {
+                showAdvertisement(ad);
+            }, Math.max(0, showAdAt));
+        }
+
+        function showAdvertisement(ad) {
+            console.log(`📢 Showing advertisement: ${ad.ad_name}`);
+            
+            const popup = document.getElementById('ad-popup');
+            const adImage = document.getElementById('ad-image');
+            const adVideo = document.getElementById('ad-video');
+            
+            // Reset
+            adImage.classList.add('hidden');
+            adVideo.classList.add('hidden');
+            
+            // Set position
+            popup.className = `ad-popup ad-position-${ad.position || 'bottom-right'}`;
+            
+            // Load ad content
+            if (ad.ad_type === 'image') {
+                adImage.src = '/' + ad.file_path;
+                adImage.classList.remove('hidden');
+            } else if (ad.ad_type === 'video') {
+                adVideo.src = '/' + ad.file_path;
+                adVideo.classList.remove('hidden');
+                adVideo.load();
+            }
+            
+            // Show popup
+            popup.classList.remove('hidden');
+            
+            // Auto-hide after duration
+            clearTimeout(CONFIG.adTimer);
+            CONFIG.adTimer = setTimeout(() => {
+                hideAdvertisement();
+            }, ad.duration * 1000);
+            
+            // Move to next ad for next time
+            CONFIG.currentAdIndex = (CONFIG.currentAdIndex + 1) % CONFIG.advertisements.length;
+        }
+
+        function hideAdvertisement() {
+            const popup = document.getElementById('ad-popup');
+            popup.classList.add('hidden');
+            
+            // Stop video if playing
+            const adVideo = document.getElementById('ad-video');
+            adVideo.pause();
+            adVideo.currentTime = 0;
+        }
+
+        // =====================================================
+        // EVENT HANDLERS
+        // =====================================================
         
-        <div class="menu-app gallery" onclick="window.location.href='/gallery'">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
-            <span class="menu-app-label">Gallery</span>
-        </div>
+        // Photo booth button
+        document.getElementById('photobooth-btn').addEventListener('click', () => {
+            window.location.href = '/photobooth';
+        });
+
+        // Close ad button
+        document.getElementById('ad-close').addEventListener('click', () => {
+            hideAdvertisement();
+        });
+
+        // Keyboard shortcuts for testing
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'n') {
+                // Next template
+                clearTimeout(CONFIG.templateTimer);
+                displayTemplate(CONFIG.currentTemplateIndex + 1);
+            } else if (e.key === 'a') {
+                // Show ad immediately
+                if (CONFIG.advertisements.length > 0) {
+                    showAdvertisement(CONFIG.advertisements[CONFIG.currentAdIndex]);
+                }
+            } else if (e.key === 'r') {
+                // Reload
+                location.reload();
+            }
+        });
+
+        // =====================================================
+        // UTILITY FUNCTIONS
+        // =====================================================
         
-        <div class="menu-app settings" onclick="alert('Settings feature coming soon!')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v6m0 6v6m4.22-13.78l-4.24 4.24m-2.83 2.83l-4.24 4.24m16.97-1.81l-6-1m-6 0l-6 1m13.78-9.19l-4.24 4.24m-2.83 2.83l-4.24 4.24"></path>
-            </svg>
-            <span class="menu-app-label">Settings</span>
-        </div>
+        function showError(message) {
+            const display = document.getElementById('main-display');
+            display.innerHTML = `
+                <div class="error-message">
+                    <h1>⚠️ Error</h1>
+                    <p>${message}</p>
+                    <button onclick="location.reload()">Reload</button>
+                </div>
+            `;
+        }
+
+        function showLoading(show) {
+            const loading = document.getElementById('loading');
+            loading.classList.toggle('hidden', !show);
+        }
+
+        // =====================================================
+        // INITIALIZE
+        // =====================================================
         
-        <div class="menu-app admin" onclick="alert('Admin panel - Use terminal: python3 manage.py')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            <span class="menu-app-label">Admin</span>
-        </div>
-        
-        <div class="menu-app" style="background: linear-gradient(135deg, #78909c 0%, #546e7a 100%);" onclick="alert('More apps coming soon!')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="1"></circle>
-                <circle cx="19" cy="12" r="1"></circle>
-                <circle cx="5" cy="12" r="1"></circle>
-            </svg>
-            <span class="menu-app-label">More</span>
-        </div>
-    </div>
-    
-    <!-- Overlay untuk close menu -->
-    <div class="menu-overlay" id="menu-overlay"></div>
-    
-    <script src="{{ url_for('static', filename='js/script-v2.js') }}"></script>
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('📺 Digital Signage Client v2.0');
+            console.log('🔧 Configuration loaded');
+            initDisplay();
+        });
+
+        // Handle visibility change (reload when tab becomes visible)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                console.log('👁️  Tab visible, reloading...');
+                location.reload();
+            }
+        });
+    </script>
 </body>
 </html>
