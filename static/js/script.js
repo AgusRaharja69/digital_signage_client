@@ -1,399 +1,232 @@
-// Update date and time
+const STATE = {
+    templates: window.SIGNAGE_DATA?.templates || [],
+    ads: window.SIGNAGE_DATA?.advertisements || [],
+    agendas: window.SIGNAGE_DATA?.agendas || [],
+    currentTemplateIndex: 0,
+    currentAdIndex: 0,
+    templateTimer: null,
+    adTimer: null,
+    adTriggerTimer: null,
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 Digital Signage initialized');
+    console.log('Templates:', STATE.templates.length);
+    console.log('Ads:', STATE.ads.length);
+    
+    initDateTime();
+    initAgendaAutoScroll();
+    initNewsAutoScroll();
+    initAgendaClickHandlers();
+    initFloatingMenu();
+    initAdvertisementHandlers();
+    startTemplateRotation();
+});
+
+function initDateTime() {
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+}
+
 function updateDateTime() {
     const now = new Date();
-    
-    // Update time
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const timeElement = document.getElementById('current-time');
-    if (timeElement) {
-        timeElement.textContent = `${hours}:${minutes}`;
-    }
-    
-    // Update day
     const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const dayElement = document.getElementById('current-day');
-    if (dayElement) {
-        dayElement.textContent = days[now.getDay()];
-    }
-    
-    // Update date
     const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
                     'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    const date = String(now.getDate()).padStart(2, '0');
-    const month = months[now.getMonth()];
-    const dateElement = document.getElementById('current-date');
-    if (dateElement) {
-        dateElement.textContent = `${month} ${date}`;
+    
+    document.getElementById('current-time').textContent = 
+        now.getHours().toString().padStart(2, '0') + ':' + 
+        now.getMinutes().toString().padStart(2, '0');
+    
+    document.getElementById('current-day').textContent = days[now.getDay()];
+    document.getElementById('current-date').textContent = 
+        months[now.getMonth()] + ' ' + now.getDate().toString().padStart(2, '0');
+}
+
+function initAgendaAutoScroll() {
+    const agendaList = document.getElementById('agenda-list');
+    const items = agendaList.querySelectorAll('.agenda-item');
+    
+    if (items.length > 3) {
+        items.forEach(item => {
+            const clone = item.cloneNode(true);
+            agendaList.appendChild(clone);
+        });
+        
+        const wrapper = document.createElement('div');
+        wrapper.className = 'agenda-list-wrapper';
+        while (agendaList.firstChild) {
+            wrapper.appendChild(agendaList.firstChild);
+        }
+        agendaList.appendChild(wrapper);
+        
+        initAgendaClickHandlers();
     }
 }
 
-// Floating Menu Toggle
-function initFloatingMenu() {
-    const menuButton = document.getElementById('menu-button');
-    const floatingMenu = document.getElementById('floating-menu');
-    const menuOverlay = document.getElementById('menu-overlay');
+function initNewsAutoScroll() {
+    const newsTicker = document.getElementById('news-ticker');
+    const items = newsTicker.querySelectorAll('.news-item');
     
-    if (!menuButton || !floatingMenu || !menuOverlay) return;
-    
-    // Toggle menu
-    menuButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        floatingMenu.classList.toggle('active');
-        menuOverlay.classList.toggle('active');
-    });
-    
-    // Close menu when clicking overlay
-    menuOverlay.addEventListener('click', () => {
-        floatingMenu.classList.remove('active');
-        menuOverlay.classList.remove('active');
-    });
-    
-    // Close menu when pressing ESC
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            floatingMenu.classList.remove('active');
-            menuOverlay.classList.remove('active');
-        }
+    items.forEach(item => {
+        const clone = item.cloneNode(true);
+        newsTicker.appendChild(clone);
     });
 }
 
-// Agenda carousel functionality - AUTO-SCROLL ENABLED
-let currentAgendaIndex = 0;
-let agendas = [];
-let allAgendasData = [];
-let autoRotateInterval = null;
+function initAgendaClickHandlers() {
+    document.querySelectorAll('.agenda-item').forEach(item => {
+        item.addEventListener('click', () => {
+            document.querySelectorAll('.agenda-item').forEach(a => a.classList.remove('active'));
+            item.classList.add('active');
+            
+            const mediaType = item.dataset.mediaType;
+            const mediaPath = item.dataset.mediaPath;
+            displayAgendaMedia(mediaType, mediaPath);
+        });
+    });
+}
 
-function initAgendaCarousel() {
-    const agendaItems = document.querySelectorAll('.agenda-item');
-    const mediaDisplay = document.getElementById('media-display');
+function displayAgendaMedia(type, path) {
+    const display = document.getElementById('media-display');
+    display.innerHTML = '';
     
-    if (agendaItems.length === 0) {
-        console.log('No agenda items found');
+    if (type === 'photo') {
+        const img = document.createElement('img');
+        img.src = '/' + path;
+        img.className = 'media-content image active';
+        img.onerror = () => img.src = '/static/uploads/placeholder.jpg';
+        display.appendChild(img);
+    } else if (type === 'video') {
+        const video = document.createElement('video');
+        video.src = '/' + path;
+        video.className = 'media-content video active';
+        video.autoplay = true;
+        video.muted = true;
+        video.loop = true;
+        display.appendChild(video);
+    }
+}
+
+function startTemplateRotation() {
+    if (STATE.templates.length === 0) {
+        console.warn('No templates available');
+        return;
+    }
+    displayTemplate(0);
+}
+
+function displayTemplate(index) {
+    if (index >= STATE.templates.length) index = 0;
+    
+    const template = STATE.templates[index];
+    STATE.currentTemplateIndex = index;
+    
+    console.log(`📺 Template: ${template.template_name} (${template.duration}s)`);
+    
+    const display = document.getElementById('media-display');
+    display.innerHTML = '';
+    
+    if (template.template_type === 'image') {
+        const img = document.createElement('img');
+        img.src = '/' + template.file_path;
+        img.className = 'media-content image active';
+        display.appendChild(img);
+    } else if (template.template_type === 'video') {
+        const video = document.createElement('video');
+        video.src = '/' + template.file_path;
+        video.className = 'media-content video active';
+        video.autoplay = true;
+        video.muted = true;
+        video.loop = true;
+        display.appendChild(video);
+    }
+    
+    scheduleAdvertisement(template.duration);
+    
+    clearTimeout(STATE.templateTimer);
+    STATE.templateTimer = setTimeout(() => {
+        displayTemplate(index + 1);
+    }, template.duration * 1000);
+}
+
+function scheduleAdvertisement(templateDuration) {
+    clearTimeout(STATE.adTriggerTimer);
+    
+    if (STATE.ads.length === 0) {
+        console.log('⚠️ No ads available');
         return;
     }
     
-    // Store agenda data - UNLIMITED
-    agendas = Array.from(agendaItems).map((item, index) => ({
-        element: item,
-        index: index,
-        id: item.dataset.id
-    }));
+    const ad = STATE.ads[STATE.currentAdIndex];
+    const showAt = (templateDuration - (ad.trigger_time || 10)) * 1000;
     
-    console.log(`Found ${agendas.length} agenda items`);
+    console.log(`📢 Ad scheduled in ${showAt/1000}s`);
     
-    // Set initial active state
-    if (agendas.length > 0) {
-        agendas[0].element.classList.add('active');
+    STATE.adTriggerTimer = setTimeout(() => {
+        showAdvertisement(ad);
+    }, Math.max(0, showAt));
+}
+
+function showAdvertisement(ad) {
+    console.log(`📢 Showing ad: ${ad.ad_name}`);
+    
+    const popup = document.getElementById('ad-popup');
+    const content = document.getElementById('ad-content');
+    
+    content.innerHTML = '';
+    
+    if (ad.ad_type === 'image') {
+        const img = document.createElement('img');
+        img.src = '/' + ad.file_path;
+        content.appendChild(img);
+    } else if (ad.ad_type === 'video') {
+        const video = document.createElement('video');
+        video.src = '/' + ad.file_path;
+        video.autoplay = true;
+        video.muted = true;
+        content.appendChild(video);
     }
     
-    // Auto-rotate agendas every 10 seconds - IMPROVED
-    startAutoRotate();
+    popup.classList.remove('hidden');
     
-    // Click handlers for manual navigation
-    agendaItems.forEach((item, index) => {
-        item.addEventListener('click', () => {
-            console.log(`Agenda clicked: ${index}`);
-            currentAgendaIndex = index;
-            updateActiveAgenda();
-            
-            // Reset auto-rotate timer when manually clicking
-            stopAutoRotate();
-            startAutoRotate();
+    clearTimeout(STATE.adTimer);
+    STATE.adTimer = setTimeout(() => {
+        popup.classList.add('hidden');
+        console.log('📢 Ad hidden');
+    }, (ad.duration || 10) * 1000);
+    
+    STATE.currentAdIndex = (STATE.currentAdIndex + 1) % STATE.ads.length;
+}
+
+function initAdvertisementHandlers() {
+    const closeBtn = document.getElementById('ad-close');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            document.getElementById('ad-popup').classList.add('hidden');
+            clearTimeout(STATE.adTimer);
         });
+    }
+}
+
+function initFloatingMenu() {
+    const menuBtn = document.getElementById('menu-button');
+    const menu = document.getElementById('floating-menu');
+    const overlay = document.getElementById('menu-overlay');
+    
+    menuBtn.addEventListener('click', () => {
+        menu.classList.toggle('active');
+        overlay.classList.toggle('active');
+    });
+    
+    overlay.addEventListener('click', () => {
+        menu.classList.remove('active');
+        overlay.classList.remove('active');
     });
 }
 
-// Start auto-rotate with improved timing
-function startAutoRotate() {
-    // Clear existing interval if any
-    stopAutoRotate();
-    
-    // Start new interval - 10 seconds
-    autoRotateInterval = setInterval(() => {
-        rotateAgenda();
-    }, 10000);
-    
-    console.log('Auto-rotate started (10 seconds interval)');
-}
-
-// Stop auto-rotate
-function stopAutoRotate() {
-    if (autoRotateInterval) {
-        clearInterval(autoRotateInterval);
-        autoRotateInterval = null;
-        console.log('Auto-rotate stopped');
-    }
-}
-
-function rotateAgenda() {
-    if (agendas.length === 0) return;
-    
-    // Move to next agenda - LOOP
-    currentAgendaIndex = (currentAgendaIndex + 1) % agendas.length;
-    
-    console.log(`Auto-rotating to agenda ${currentAgendaIndex + 1}/${agendas.length}`);
-    
-    updateActiveAgenda();
-}
-
-function updateActiveAgenda() {
-    if (agendas.length === 0) return;
-    
-    // Update active class on agenda items
-    agendas.forEach((agenda, index) => {
-        if (index === currentAgendaIndex) {
-            agenda.element.classList.add('active');
-        } else {
-            agenda.element.classList.remove('active');
-        }
-    });
-    
-    // AUTO-SCROLL SIDEBAR to active agenda - IMPROVED
-    const activeAgenda = agendas[currentAgendaIndex].element;
-    const agendaList = document.getElementById('agenda-list');
-    
-    if (activeAgenda && agendaList) {
-        // Smooth scroll to center the active item
-        const listRect = agendaList.getBoundingClientRect();
-        const itemRect = activeAgenda.getBoundingClientRect();
-        
-        // Calculate scroll position to center the item
-        const scrollTop = agendaList.scrollTop;
-        const offset = itemRect.top - listRect.top - (listRect.height / 2) + (itemRect.height / 2);
-        
-        agendaList.scrollTo({
-            top: scrollTop + offset,
-            behavior: 'smooth'
-        });
-        
-        console.log('Scrolled to agenda:', currentAgendaIndex);
-    }
-    
-    // Fetch and update media display
-    fetchAgendas();
-}
-
-// Fetch agendas from API - GET ALL AGENDAS (UNLIMITED)
-async function fetchAgendas() {
-    try {
-        const response = await fetch('/api/agendas');
-        const agendasData = await response.json();
-        
-        allAgendasData = agendasData; // Store all agendas
-        
-        if (agendasData.length > 0 && agendasData[currentAgendaIndex]) {
-            const agenda = agendasData[currentAgendaIndex];
-            const mediaDisplay = document.getElementById('media-display');
-            
-            if (mediaDisplay) {
-                // Clear existing content
-                mediaDisplay.innerHTML = '';
-                
-                if (agenda.media_type === 'photo') {
-                    const img = document.createElement('img');
-                    img.src = `/static/${agenda.media_path.replace('static/', '')}`;
-                    img.alt = agenda.title;
-                    img.className = 'media-content active';
-                    img.onerror = function() {
-                        this.src = '/static/uploads/placeholder.jpg';
-                    };
-                    mediaDisplay.appendChild(img);
-                } else if (agenda.media_type === 'video') {
-                    const video = document.createElement('video');
-                    video.className = 'media-content active';
-                    video.autoplay = true;
-                    video.muted = true;
-                    video.loop = true;
-                    
-                    const source = document.createElement('source');
-                    source.src = `/static/${agenda.media_path.replace('static/', '')}`;
-                    source.type = 'video/mp4';
-                    
-                    video.appendChild(source);
-                    mediaDisplay.appendChild(video);
-                }
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching agendas:', error);
-    }
-}
-
-// News ticker animation
-function initNewsTicker() {
-    const ticker = document.getElementById('news-ticker');
-    if (!ticker) return;
-    
-    // Clone news items to create seamless loop
-    const newsItems = ticker.innerHTML;
-    ticker.innerHTML = newsItems + newsItems;
-    
-    // Adjust animation duration based on content length
-    const itemCount = document.querySelectorAll('.news-item').length / 2; // Divide by 2 karena sudah di-duplicate
-    const duration = itemCount * 3; // 3 seconds per item
-    ticker.style.animationDuration = `${duration}s`;
-    
-    console.log(`News ticker initialized: ${itemCount} items, ${duration}s duration`);
-}
-
-// Fetch and update news
-async function fetchNews() {
-    try {
-        const response = await fetch('/api/news');
-        const newsData = await response.json();
-        
-        const ticker = document.getElementById('news-ticker');
-        if (ticker && newsData.length > 0) {
-            let newsHTML = '';
-            newsData.forEach(news => {
-                newsHTML += `<div class="news-item">${news.content}</div>`;
-            });
-            // Duplicate for seamless scrolling
-            ticker.innerHTML = newsHTML + newsHTML;
-            
-            // Adjust animation speed
-            const itemCount = newsData.length;
-            const duration = itemCount * 3;
-            ticker.style.animationDuration = `${duration}s`;
-        }
-    } catch (error) {
-        console.error('Error fetching news:', error);
-    }
-}
-
-// Refresh data periodically
-function startDataRefresh() {
-    // Refresh agendas every 30 seconds
-    setInterval(() => {
-        fetchAgendas();
-    }, 30000);
-    
-    // Refresh news every 60 seconds
-    setInterval(() => {
-        fetchNews();
-    }, 60000);
-}
-
-// Keyboard shortcuts
-function initKeyboardShortcuts() {
-    document.addEventListener('keydown', (e) => {
-        // Arrow keys to navigate agendas
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            currentAgendaIndex = (currentAgendaIndex - 1 + agendas.length) % agendas.length;
-            updateActiveAgenda();
-            // Reset auto-rotate timer
-            stopAutoRotate();
-            startAutoRotate();
-        } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-            e.preventDefault();
-            currentAgendaIndex = (currentAgendaIndex + 1) % agendas.length;
-            updateActiveAgenda();
-            // Reset auto-rotate timer
-            stopAutoRotate();
-            startAutoRotate();
-        }
-        
-        // Space to toggle menu
-        if (e.key === ' ' && e.target === document.body) {
-            e.preventDefault();
-            document.getElementById('menu-button').click();
-        }
-        
-        // P to pause/resume auto-rotate
-        if (e.key === 'p' || e.key === 'P') {
-            if (autoRotateInterval) {
-                stopAutoRotate();
-                console.log('Auto-rotate paused (press P to resume)');
-            } else {
-                startAutoRotate();
-                console.log('Auto-rotate resumed');
-            }
-        }
-    });
-}
-
-// Initialize everything when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Photo Station v2 - Initializing...');
-    
-    updateDateTime();
-    setInterval(updateDateTime, 1000); // Update every second
-    
-    initFloatingMenu();
-    initAgendaCarousel();
-    initNewsTicker();
-    initKeyboardShortcuts();
-    startDataRefresh();
-    
-    // Initial data fetch
-    fetchAgendas();
-    fetchNews();
-    
-    console.log('Photo Station v2 - Initialized!');
-    console.log('Keyboard shortcuts:');
-    console.log('- Arrow keys: Navigate agendas');
-    console.log('- Space: Toggle menu');
-    console.log('- ESC: Close menu');
-    console.log('- P: Pause/Resume auto-rotate');
-});
-
-// Reload page at midnight to reset
-function schedulePageReload() {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    
-    const timeUntilMidnight = tomorrow - now;
-    
-    setTimeout(() => {
-        location.reload();
-    }, timeUntilMidnight);
-}
-
-schedulePageReload();
-
-// Touch gestures for mobile (swipe to change agenda)
-let touchStartX = 0;
-let touchEndX = 0;
-
-document.addEventListener('touchstart', (e) => {
-    touchStartX = e.changedTouches[0].screenX;
-});
-
-document.addEventListener('touchend', (e) => {
-    touchEndX = e.changedTouches[0].screenX;
-    handleSwipe();
-});
-
-function handleSwipe() {
-    const swipeThreshold = 50;
-    
-    if (touchEndX < touchStartX - swipeThreshold) {
-        // Swipe left - next agenda
-        currentAgendaIndex = (currentAgendaIndex + 1) % agendas.length;
-        updateActiveAgenda();
-        // Reset auto-rotate timer
-        stopAutoRotate();
-        startAutoRotate();
-    }
-    
-    if (touchEndX > touchStartX + swipeThreshold) {
-        // Swipe right - previous agenda
-        currentAgendaIndex = (currentAgendaIndex - 1 + agendas.length) % agendas.length;
-        updateActiveAgenda();
-        // Reset auto-rotate timer
-        stopAutoRotate();
-        startAutoRotate();
-    }
-}
-
-// Debug info (dapat dihapus nanti)
-window.addEventListener('load', () => {
-    console.log('=== Photo Station Debug Info ===');
-    console.log('Total agendas:', agendas.length);
-    console.log('Auto-rotate interval:', autoRotateInterval ? 'Running' : 'Stopped');
-    console.log('Current agenda index:', currentAgendaIndex);
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'n') displayTemplate(STATE.currentTemplateIndex + 1);
+    if (e.key === 'a' && STATE.ads.length > 0) showAdvertisement(STATE.ads[STATE.currentAdIndex]);
+    if (e.key === 'r') location.reload();
 });
