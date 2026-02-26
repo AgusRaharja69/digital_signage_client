@@ -1,35 +1,53 @@
 /* ============================================================
-   PHOTOBOOTH — photobooth.js
-   State machine:
-     IDLE → CAPTURE (x3) → PROCESSING → RESULT (10s) → HOME
+   PHOTOBOOTH — photobooth.js  v4
+   Full browser-side compositing using HTML Canvas.
+   
+   Flow:
+     1. User picks frame
+     2. Webcam starts
+     3. 5s countdown × 3 → each capture stored as ImageBitmap
+     4. Canvas: draw frame image, then draw each photo into slot position
+     5. canvas.toBlob() → send to /photobooth/save → get URL
+     6. Show result 10s → redirect home
+   
+   Slot positions (% of frame 1000×2000, same for all 3 frames):
+     Slot 1: left=11.10%  top=22.05%  width=77.60%  height=18.20%
+     Slot 2: left=11.10%  top=42.75%  width=77.60%  height=18.20%
+     Slot 3: left=11.20%  top=63.45%  width=77.60%  height=18.20%
    ============================================================ */
 
 'use strict';
 
-/* ── State ────────────────────────────────────────────────── */
+/* ── Slot definitions as fractions of frame size ──────────────────────────── */
+const SLOTS = [
+    { left: 0.1110, top: 0.2205, width: 0.7760, height: 0.1820 },
+    { left: 0.1110, top: 0.4275, width: 0.7760, height: 0.1820 },
+    { left: 0.1120, top: 0.6345, width: 0.7760, height: 0.1820 },
+];
+
+/* ── State ──────────────────────────────────────────────────────────────────── */
 const PB = {
-    selectedFrame: null,      // filename e.g. "frame1.png"
-    capturedPhotos: [],       // array of base64 data-URLs (max 3)
-    currentShot: 0,           // 0, 1, 2
-    countdownValue: 5,
-    countdownTimer: null,
-    resultTimer: null,
-    stream: null,             // MediaStream
+    selectedFrame: null,      // filename
+    capturedBitmaps: [],      // ImageBitmap objects
+    currentShot:  0,
+    stream:       null,
+    countdownId:  null,
+    resultId:     null,
+    frameImage:   null,       // HTMLImageElement of selected frame
 };
 
-/* ── DOM refs ─────────────────────────────────────────────── */
+/* ── DOM ──────────────────────────────────────────────────────────────────── */
 const $ = id => document.getElementById(id);
 
-/* ── Screens ─────────────────────────────────────────────── */
+/* ── Screen ───────────────────────────────────────────────────────────────── */
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    const el = $(id);
-    if (el) el.classList.add('active');
+    $(id).classList.add('active');
 }
 
-/* ══════════════════════════════════════════════════════════
-   SCREEN 1 — IDLE / FRAME SELECT
-   ══════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   SCREEN 1 — FRAME SELECT
+   ══════════════════════════════════════════════════════════════ */
 function selectFrame(el) {
     document.querySelectorAll('.frame-thumb').forEach(t => t.classList.remove('selected'));
     el.classList.add('selected');
@@ -37,188 +55,238 @@ function selectFrame(el) {
 }
 
 async function startSession() {
-    // Determine selected frame
     const sel = document.querySelector('.frame-thumb.selected');
-    if (!sel) { alert('Pilih frame terlebih dahulu!'); return; }
-    PB.selectedFrame = sel.dataset.frame;
+    if (!sel) { alert('Pilih frame dulu!'); return; }
 
-    // Show selected frame in capture screen
-    $('selected-frame-thumb').src = `/photobooth/imgs/frames/${PB.selectedFrame}`;
+    PB.selectedFrame   = sel.dataset.frame;
+    PB.capturedBitmaps = [];
+    PB.currentShot     = 0;
 
-    // Reset state
-    PB.capturedPhotos = [];
-    PB.currentShot    = 0;
-    resetStripSlots();
+    // Preload frame image
+    PB.frameImage = await loadImage(`/photobooth/imgs/frames/${PB.selectedFrame}`);
+
+    // Update UI
+    $('frame-mini-img').src = `/photobooth/imgs/frames/${PB.selectedFrame}`;
+    resetStrip();
     resetDots();
-
     showScreen('screen-capture');
 
     // Start webcam
     try {
         PB.stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
             audio: false
         });
         $('camera-feed').srcObject = PB.stream;
         await $('camera-feed').play();
+        setStatus('Kamera siap!');
+        setTimeout(startCountdown, 800);
     } catch (err) {
-        console.error('Camera error:', err);
-        $('capture-status').textContent = '⚠ Tidak bisa akses kamera: ' + err.message;
-        return;
+        setStatus('⚠ Gagal akses kamera: ' + err.message);
     }
-
-    // Start first countdown
-    setTimeout(() => beginCountdown(), 800);
 }
 
-/* ══════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    COUNTDOWN → CAPTURE
-   ══════════════════════════════════════════════════════════ */
-function beginCountdown() {
-    const shotNum = PB.currentShot + 1;
-    $('photo-counter').textContent = `Foto ${shotNum} dari 3`;
-    setDotActive(PB.currentShot);
+   ══════════════════════════════════════════════════════════════ */
+function startCountdown() {
+    const n = PB.currentShot + 1;
+    $('shot-info').textContent = `Foto ${n} dari 3`;
+    setDot(PB.currentShot, 'active');
+    setStatus(`Bersiap untuk foto ${n}…`);
 
     let count = 5;
-    $('countdown-number').textContent = count;
-    $('countdown-overlay').classList.add('active');
-    $('capture-status').textContent = `Bersiap untuk foto ${shotNum}…`;
+    const cdEl  = $('cam-countdown');
+    const numEl = $('cd-number');
 
-    clearInterval(PB.countdownTimer);
-    PB.countdownTimer = setInterval(() => {
+    cdEl.classList.remove('hidden');
+    setCountdownNum(numEl, count);
+
+    clearInterval(PB.countdownId);
+    PB.countdownId = setInterval(() => {
         count--;
-        // Re-trigger pop animation
-        const el = $('countdown-number');
-        el.textContent = count;
-        el.style.animation = 'none';
-        void el.offsetWidth; // reflow
-        el.style.animation = 'countPop .4s cubic-bezier(.22,1,.36,1)';
-
-        if (count <= 0) {
-            clearInterval(PB.countdownTimer);
-            $('countdown-overlay').classList.remove('active');
-            capturePhoto();
+        if (count > 0) {
+            setCountdownNum(numEl, count);
+        } else {
+            clearInterval(PB.countdownId);
+            cdEl.classList.add('hidden');
+            doCapture();
         }
     }, 1000);
 }
 
-function capturePhoto() {
-    const video    = $('camera-feed');
-    const canvas   = $('snapshot-canvas');
-    const ctx      = canvas.getContext('2d');
+function setCountdownNum(el, n) {
+    el.textContent = n;
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = 'countPop .45s cubic-bezier(.22,1,.36,1)';
+}
 
-    canvas.width  = video.videoWidth  || 1280;
-    canvas.height = video.videoHeight || 720;
-
-    // Mirror horizontally (undo the CSS scaleX(-1) so saved photo is normal)
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    const dataURL = canvas.toDataURL('image/jpeg', 0.92);
-    PB.capturedPhotos.push(dataURL);
+async function doCapture() {
+    const video = $('camera-feed');
 
     // Flash
-    const flash = $('camera-flash');
-    flash.classList.add('flash-anim');
-    flash.addEventListener('animationend', () => flash.classList.remove('flash-anim'), { once: true });
+    const flash = $('cam-flash');
+    flash.classList.add('flashing');
+    flash.addEventListener('animationend', () => flash.classList.remove('flashing'), { once: true });
 
-    // Update strip slot
-    fillStripSlot(PB.currentShot, dataURL);
-    setDotDone(PB.currentShot);
+    // Capture frame from video as ImageBitmap (full quality, no JPEG loss yet)
+    const bitmap = await createImageBitmap(video);
+    PB.capturedBitmaps.push(bitmap);
 
-    $('capture-status').textContent = `Foto ${PB.currentShot + 1} diambil! ✓`;
+    // Update strip
+    fillStrip(PB.currentShot, bitmap);
+    setDot(PB.currentShot, 'done');
+    setStatus(`Foto ${PB.currentShot + 1} diambil ✓`);
 
     PB.currentShot++;
 
     if (PB.currentShot < 3) {
-        // Next shot after 1.5s pause
-        setTimeout(() => beginCountdown(), 1500);
+        setTimeout(startCountdown, 1200);
     } else {
-        // All 3 done — compose
-        setTimeout(() => composeAndSave(), 1000);
+        setTimeout(composeInBrowser, 600);
     }
 }
 
-/* ══════════════════════════════════════════════════════════
-   COMPOSE & SAVE
-   ══════════════════════════════════════════════════════════ */
-async function composeAndSave() {
-    // Stop camera
+/* ══════════════════════════════════════════════════════════════
+   BROWSER-SIDE COMPOSITING
+   Draw photos into slot positions on the frame canvas.
+   ══════════════════════════════════════════════════════════════ */
+async function composeInBrowser() {
     stopCamera();
+    showScreen('screen-compositing');
 
-    showScreen('screen-processing');
+    await new Promise(r => setTimeout(r, 100)); // let screen render
 
-    try {
-        const resp = await fetch('/photobooth/compose', {
-            method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                photos: PB.capturedPhotos,
-                frame:  PB.selectedFrame
-            })
-        });
+    const frame  = PB.frameImage;
+    const fw     = frame.naturalWidth;    // 1000
+    const fh     = frame.naturalHeight;  // 2000
 
-        const result = await resp.json();
+    const canvas = $('compose-canvas');
+    canvas.width  = fw;
+    canvas.height = fh;
+    const ctx = canvas.getContext('2d');
 
-        if (!result.success) {
-            throw new Error(result.error || 'Compose failed');
+    // 1. Draw black background
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, fw, fh);
+
+    // 2. Draw each captured photo into its slot (BEHIND the frame)
+    for (let i = 0; i < 3; i++) {
+        const slot   = SLOTS[i];
+        const sx     = Math.round(slot.left   * fw);
+        const sy     = Math.round(slot.top    * fh);
+        const sw     = Math.round(slot.width  * fw);
+        const sh     = Math.round(slot.height * fh);
+        const bitmap = PB.capturedBitmaps[i];
+
+        if (!bitmap) continue;
+
+        const bw = bitmap.width;
+        const bh = bitmap.height;
+
+        // Cover-crop: find source rect that fills slot at correct aspect ratio
+        const slotAR = sw / sh;
+        const bitmapAR = bw / bh;
+        let srcX, srcY, srcW, srcH;
+
+        if (bitmapAR > slotAR) {
+            // bitmap is wider → crop left/right
+            srcH = bh;
+            srcW = bh * slotAR;
+            srcX = (bw - srcW) / 2;
+            srcY = 0;
+        } else {
+            // bitmap is taller → crop top/bottom
+            srcW = bw;
+            srcH = bw / slotAR;
+            srcX = 0;
+            srcY = (bh - srcH) / 2;
         }
 
-        showResultScreen(result.url);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(sx, sy, sw, sh);
+        ctx.clip();
 
-    } catch (err) {
-        console.error('Compose error:', err);
-        alert('Gagal menyusun foto: ' + err.message);
-        goHome();
+        // Mirror horizontally (undo webcam mirror effect)
+        ctx.translate(sx + sw, sy);
+        ctx.scale(-1, 1);
+        ctx.drawImage(bitmap, srcX, srcY, srcW, srcH, 0, 0, sw, sh);
+
+        ctx.restore();
     }
+
+    // 3. Draw frame ON TOP (covers decorative areas, keeps slots transparent)
+    ctx.drawImage(frame, 0, 0, fw, fh);
+
+    // 4. Convert to blob and send to server to save
+    canvas.toBlob(async (blob) => {
+        try {
+            const formData = new FormData();
+            formData.append('image', blob, 'photobooth.jpg');
+            formData.append('frame', PB.selectedFrame);
+
+            const resp   = await fetch('/photobooth/save', {
+                method: 'POST',
+                body:   formData
+            });
+            const result = await resp.json();
+
+            if (result.success) {
+                showResult(result.url);
+            } else {
+                // Fallback: show from canvas directly
+                showResult(canvas.toDataURL('image/jpeg', 0.95));
+            }
+        } catch (err) {
+            console.error('Save error:', err);
+            showResult(canvas.toDataURL('image/jpeg', 0.95));
+        }
+    }, 'image/jpeg', 0.95);
 }
 
-/* ══════════════════════════════════════════════════════════
-   RESULT SCREEN (10s countdown)
-   ══════════════════════════════════════════════════════════ */
-function showResultScreen(imageUrl) {
-    $('result-img').src = imageUrl;
+/* ══════════════════════════════════════════════════════════════
+   RESULT SCREEN
+   ══════════════════════════════════════════════════════════════ */
+function showResult(url) {
+    $('result-img').src = url;
     showScreen('screen-result');
 
-    // Countdown bar
     const bar  = $('result-bar');
-    const secEl= $('result-sec');
+    const secEl = $('result-sec');
     bar.style.transition = 'none';
-    bar.style.width = '100%';
+    bar.style.width      = '100%';
 
     let remaining = 10;
     secEl.textContent = remaining;
 
-    // Trigger CSS transition
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            bar.style.transition = 'width 10s linear';
-            bar.style.width      = '0%';
-        });
-    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        bar.style.transition = 'width 10s linear';
+        bar.style.width      = '0%';
+    }));
 
-    clearInterval(PB.resultTimer);
-    PB.resultTimer = setInterval(() => {
+    clearInterval(PB.resultId);
+    PB.resultId = setInterval(() => {
         remaining--;
         secEl.textContent = remaining;
         if (remaining <= 0) {
-            clearInterval(PB.resultTimer);
+            clearInterval(PB.resultId);
             goHome();
         }
     }, 1000);
 }
 
 function goHome() {
-    clearInterval(PB.resultTimer);
-    clearInterval(PB.countdownTimer);
+    clearInterval(PB.resultId);
+    clearInterval(PB.countdownId);
     stopCamera();
     window.location.href = '/';
 }
 
-/* ══════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    HELPERS
-   ══════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════ */
 function stopCamera() {
     if (PB.stream) {
         PB.stream.getTracks().forEach(t => t.stop());
@@ -227,58 +295,77 @@ function stopCamera() {
     }
 }
 
-function fillStripSlot(index, dataURL) {
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload  = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function setStatus(msg) {
+    $('status-bar').textContent = msg;
+}
+
+/* Strip */
+function resetStrip() {
+    for (let i = 0; i < 3; i++) {
+        const s = $(`strip-${i}`);
+        const c = s.querySelector('canvas');
+        if (c) c.remove();
+        const sp = s.querySelector('span');
+        if (!sp) { const e = document.createElement('span'); e.textContent = i+1; s.appendChild(e); }
+        else sp.style.display = '';
+        s.classList.remove('filled');
+    }
+}
+
+function fillStrip(index, bitmap) {
     const slot = $(`strip-${index}`);
-    if (!slot) return;
+    slot.querySelector('span').style.display = 'none';
     slot.classList.add('filled');
-    const img = document.createElement('img');
-    img.src = dataURL;
-    // Remove slot-num span
-    slot.querySelector('.slot-num')?.remove();
-    slot.appendChild(img);
+
+    const c   = document.createElement('canvas');
+    const sw  = slot.clientWidth  || 160;
+    const sh  = slot.clientHeight || 70;
+    c.width   = sw;
+    c.height  = sh;
+    const ctx = c.getContext('2d');
+
+    // Cover-crop bitmap into strip slot
+    const bw = bitmap.width, bh = bitmap.height;
+    const scale  = Math.max(sw/bw, sh/bh);
+    const scaledW = bw*scale, scaledH = bh*scale;
+    const ox = (scaledW-sw)/2, oy = (scaledH-sh)/2;
+
+    // Mirror
+    ctx.save();
+    ctx.translate(sw, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(bitmap, -ox/scale, oy/scale, sw/scale, sh/scale, 0, 0, sw, sh);
+    ctx.restore();
+
+    slot.appendChild(c);
 }
 
-function resetStripSlots() {
-    for (let i = 0; i < 3; i++) {
-        const slot = $(`strip-${i}`);
-        if (!slot) continue;
-        slot.classList.remove('filled');
-        const img = slot.querySelector('img');
-        if (img) img.remove();
-        if (!slot.querySelector('.slot-num')) {
-            const span = document.createElement('span');
-            span.className = 'slot-num';
-            span.textContent = i + 1;
-            slot.appendChild(span);
-        }
-    }
-}
-
+/* Dots */
 function resetDots() {
-    for (let i = 0; i < 3; i++) {
-        const dot = $(`dot-${i}`);
-        if (dot) { dot.classList.remove('done', 'active'); }
-    }
+    ['dot-0','dot-1','dot-2'].forEach(id => {
+        const d = $(id);
+        d.className = 'dot';
+    });
 }
 
-function setDotActive(index) {
-    resetDots();
-    for (let i = 0; i < index; i++) setDotDone(i);
-    const dot = $(`dot-${index}`);
-    if (dot) dot.classList.add('active');
+function setDot(index, state) {
+    const d = $(`dot-${index}`);
+    d.className = 'dot ' + state;
 }
 
-function setDotDone(index) {
-    const dot = $(`dot-${index}`);
-    if (dot) { dot.classList.remove('active'); dot.classList.add('done'); }
-}
-
-/* ── Init ─────────────────────────────────────────────────── */
+/* ── Init ────────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
-    // Set first frame as selected by default
     const first = document.querySelector('.frame-thumb');
-    if (first) {
-        PB.selectedFrame = first.dataset.frame;
-    }
+    if (first) PB.selectedFrame = first.dataset.frame;
     showScreen('screen-idle');
 });

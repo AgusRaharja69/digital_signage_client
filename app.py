@@ -155,76 +155,23 @@ def pb_capture_img(filename):
     return send_from_directory(PB_CAPTURES_DIR, filename)
 
 
-@app.route('/photobooth/compose', methods=['POST'])
-def pb_compose():
+@app.route('/photobooth/save', methods=['POST'])
+def pb_save():
     """
-    Composite 3 captured photos into the selected frame.
-    Frame uses black slots (RGB, no transparency) — we use a black-pixel
-    mask to cut holes and paste photos underneath the frame artwork.
+    Receive the already-composited image (JPEG blob) from browser canvas.
+    Browser handles all compositing — server just saves the file.
     """
     try:
-        import io as _io
-        import numpy as np
-        from PIL import Image
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image file'}), 400
 
-        data       = request.get_json()
-        photos_b64 = data.get('photos', [])
-        frame_name = data.get('frame', 'frame1.PNG')
+        img_file  = request.files['image']
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name  = f'photo_{timestamp}.jpg'
+        out_path  = os.path.join(PB_CAPTURES_DIR, out_name)
+        img_file.save(out_path)
 
-        if len(photos_b64) != 3:
-            return jsonify({'success': False, 'error': 'Need 3 photos'}), 400
-
-        # Try both .PNG and .png extensions
-        frame_path = os.path.join(PB_FRAMES_DIR, frame_name)
-        if not os.path.exists(frame_path):
-            # Try alternate case
-            alt = frame_name.replace('.png', '.PNG').replace('.PNG', '.png')
-            frame_path = os.path.join(PB_FRAMES_DIR, alt)
-            if not os.path.exists(frame_path):
-                return jsonify({'success': False, 'error': f'Frame not found: {frame_name}'}), 404
-
-        frame_img = Image.open(frame_path).convert('RGB')
-        fw, fh    = frame_img.size   # 1000 × 2000
-        frame_arr = np.array(frame_img)
-
-        # Build black hole mask: pixels where R<20, G<20, B<20
-        hole_mask = (
-            (frame_arr[:,:,0] < 20) &
-            (frame_arr[:,:,1] < 20) &
-            (frame_arr[:,:,2] < 20)
-        )
-
-        # Start with a copy of the frame
-        result_arr = frame_arr.copy()
-
-        # Build photo layer — paint each photo into its slot position
-        photo_layer = np.zeros((fh, fw, 3), dtype=np.uint8)
-
-        for i, b64_data in enumerate(photos_b64):
-            x, y, sw, sh = PB_SLOTS[i]
-
-            if ',' in b64_data:
-                b64_data = b64_data.split(',', 1)[1]
-
-            photo_bytes   = base64.b64decode(b64_data)
-            photo_img     = Image.open(_io.BytesIO(photo_bytes)).convert('RGB')
-            photo_resized = _cover_crop(photo_img, sw, sh)
-            photo_arr     = np.array(photo_resized)
-
-            photo_layer[y:y+sh, x:x+sw] = photo_arr
-
-        # Replace black holes in frame with photo pixels
-        result_arr[hole_mask] = photo_layer[hole_mask]
-
-        # Save
-        result_img = Image.fromarray(result_arr)
-        timestamp  = datetime.now().strftime('%Y%m%d_%H%M%S')
-        out_name   = f'photo_{timestamp}.jpg'
-        out_path   = os.path.join(PB_CAPTURES_DIR, out_name)
-        result_img.save(out_path, 'JPEG', quality=95, optimize=True)
-
-        print(f'[Photobooth] Saved: {out_path}  ({fw}x{fh})')
-
+        print(f'[Photobooth] Saved: {out_path}')
         return jsonify({
             'success':  True,
             'filename': out_name,
@@ -246,6 +193,8 @@ def _cover_crop(img, tw, th):
     l = (nw - tw) // 2
     t = (nh - th) // 2
     return img.crop((l, t, l + tw, t + th))
+
+
 
 
 # ═════════════════════════════════════════════════════════════════════════════

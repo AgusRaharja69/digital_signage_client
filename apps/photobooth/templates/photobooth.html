@@ -10,18 +10,16 @@
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════
      SCREEN 1 — IDLE / FRAME SELECT
-     ═══════════════════════════════════════════════ -->
+     ═══════════════════════════════════════════ -->
 <div class="screen active" id="screen-idle">
     <div class="idle-bg"></div>
-
     <header class="pb-header">
         <h1 class="pb-title">📸 Photobooth</h1>
-        <p class="pb-subtitle">Pilih frame lalu mulai sesi foto kamu!</p>
+        <p class="pb-subtitle">Pilih frame lalu mulai sesi foto!</p>
     </header>
 
-    <!-- Frame Selector -->
     <div class="frame-selector" id="frame-selector">
         {% for frame in frames %}
         <div class="frame-thumb {{ 'selected' if loop.first else '' }}"
@@ -34,97 +32,93 @@
         {% endfor %}
     </div>
 
-    <button class="btn-start" id="btn-start" onclick="startSession()">
-        <span class="btn-icon">📷</span>
-        Start Capture
+    <button class="btn-start" onclick="startSession()">
+        <span>📷</span> Start Capture
     </button>
-
-    <a href="/" class="btn-back-home">← Kembali</a>
+    <a href="/" class="btn-back-home">← Kembali ke Beranda</a>
 </div>
 
-<!-- ═══════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════
      SCREEN 2 — CAPTURE SESSION
-     ═══════════════════════════════════════════════ -->
+     ═══════════════════════════════════════════ -->
 <div class="screen" id="screen-capture">
+    <div class="capture-layout">
 
-    <!-- Left: Live strip preview -->
-    <div class="strip-panel">
-        <div class="strip-title">HASIL FOTO</div>
-        <div class="strip-slots" id="strip-slots">
-            <div class="strip-slot" id="strip-0">
-                <span class="slot-num">1</span>
-            </div>
-            <div class="strip-slot" id="strip-1">
-                <span class="slot-num">2</span>
-            </div>
-            <div class="strip-slot" id="strip-2">
-                <span class="slot-num">3</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Center: Camera feed -->
-    <div class="camera-panel">
-        <div class="photo-counter" id="photo-counter">Foto 1 dari 3</div>
-
-        <div class="camera-wrap" id="camera-wrap">
-            <video id="camera-feed" autoplay muted playsinline></video>
-            <canvas id="snapshot-canvas" style="display:none"></canvas>
-
-            <!-- Flash overlay -->
-            <div class="camera-flash" id="camera-flash"></div>
-
-            <!-- Countdown overlay -->
-            <div class="countdown-overlay" id="countdown-overlay">
-                <div class="countdown-number" id="countdown-number">5</div>
+        <!-- LEFT: Live preview strip -->
+        <div class="strip-panel">
+            <div class="strip-label">HASIL FOTO</div>
+            <div class="strip-slots">
+                <div class="strip-slot" id="strip-0"><span>1</span></div>
+                <div class="strip-slot" id="strip-1"><span>2</span></div>
+                <div class="strip-slot" id="strip-2"><span>3</span></div>
             </div>
         </div>
 
-        <!-- Status message -->
-        <div class="capture-status" id="capture-status">Bersiap…</div>
-    </div>
+        <!-- CENTER: Camera + countdown -->
+        <div class="camera-panel">
+            <div class="shot-info" id="shot-info">Foto 1 dari 3</div>
 
-    <!-- Right: Info -->
-    <div class="info-panel">
-        <div class="progress-dots" id="progress-dots">
-            <div class="dot" id="dot-0"></div>
-            <div class="dot" id="dot-1"></div>
-            <div class="dot" id="dot-2"></div>
+            <div class="camera-box" id="camera-box">
+                <video id="camera-feed" autoplay muted playsinline></video>
+                <div class="cam-flash"  id="cam-flash"></div>
+                <div class="cam-countdown hidden" id="cam-countdown">
+                    <span id="cd-number">5</span>
+                </div>
+            </div>
+
+            <div class="status-bar" id="status-bar">Memulai kamera…</div>
         </div>
-        <p class="info-hint">Foto akan diambil otomatis<br>saat hitung mundur selesai</p>
-        <div class="selected-frame-preview">
-            <p>Frame dipilih:</p>
-            <img id="selected-frame-thumb" src="" alt="frame">
+
+        <!-- RIGHT: Dots + frame thumb -->
+        <div class="side-panel">
+            <div class="dots" id="dots">
+                <div class="dot" id="dot-0"></div>
+                <div class="dot" id="dot-1"></div>
+                <div class="dot" id="dot-2"></div>
+            </div>
+            <p class="side-hint">Foto otomatis saat<br>hitung mundur selesai</p>
+            <div class="frame-mini">
+                <p>Frame:</p>
+                <img id="frame-mini-img" src="" alt="">
+            </div>
         </div>
+
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════
-     SCREEN 3 — COMPOSITING LOADING
-     ═══════════════════════════════════════════════ -->
-<div class="screen" id="screen-processing">
-    <div class="processing-wrap">
+<!-- ═══════════════════════════════════════════
+     SCREEN 3 — COMPOSITING (browser canvas)
+     ═══════════════════════════════════════════ -->
+<div class="screen" id="screen-compositing">
+    <div class="compositing-wrap">
         <div class="spinner"></div>
-        <p class="processing-text">Menyusun foto…</p>
+        <p>Menyusun foto…</p>
     </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════
+<!-- ═══════════════════════════════════════════
      SCREEN 4 — RESULT PREVIEW (10s)
-     ═══════════════════════════════════════════════ -->
+     ═══════════════════════════════════════════ -->
 <div class="screen" id="screen-result">
     <div class="result-wrap">
         <h2 class="result-title">✨ Foto Siap!</h2>
-        <div class="result-frame-wrap">
+
+        <div class="result-img-wrap">
+            <!-- Final composited image shown here -->
             <img id="result-img" src="" alt="hasil foto">
         </div>
-        <div class="result-countdown-bar">
-            <div class="result-countdown-fill" id="result-bar"></div>
+
+        <div class="result-bar-wrap">
+            <div class="result-bar-fill" id="result-bar"></div>
         </div>
-        <p class="result-hint" id="result-hint">Kembali ke beranda dalam <span id="result-sec">10</span> detik…</p>
+        <p class="result-hint">Kembali otomatis dalam <strong id="result-sec">10</strong> detik</p>
+
         <button class="btn-home" onclick="goHome()">🏠 Kembali Sekarang</button>
     </div>
 </div>
+
+<!-- Hidden canvas used for compositing -->
+<canvas id="compose-canvas" style="display:none"></canvas>
 
 <script src="/photobooth/static/js/photobooth.js"></script>
 </body>

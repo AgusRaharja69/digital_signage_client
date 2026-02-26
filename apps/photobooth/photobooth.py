@@ -115,10 +115,16 @@ def compose():
             x, y, sw, sh = PHOTO_SLOTS[i]
             if ',' in b64_data:
                 b64_data = b64_data.split(',', 1)[1]
-            photo_bytes   = base64.b64decode(b64_data)
-            photo_img     = Image.open(_io.BytesIO(photo_bytes)).convert('RGB')
-            photo_resized = _cover_crop(photo_img, sw, sh)
-            photo_layer[y:y+sh, x:x+sw] = np.array(photo_resized)
+            photo_bytes = base64.b64decode(b64_data)
+            photo_img   = Image.open(_io.BytesIO(photo_bytes)).convert('RGB')
+
+            if photo_img.size != (sw, sh):
+                photo_img = _cover_crop(photo_img, sw, sh)
+
+            photo_arr = np.array(photo_img)
+            y2 = min(y + sh, fh)
+            x2 = min(x + sw, fw)
+            photo_layer[y:y2, x:x2] = photo_arr[:y2-y, :x2-x]
 
         result_arr = frame_arr.copy()
         result_arr[hole_mask] = photo_layer[hole_mask]
