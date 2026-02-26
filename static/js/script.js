@@ -1,7 +1,10 @@
 /* ============================================================
-   DIGITAL SIGNAGE — script.js
-   Smart video duration: rotates on 'ended', not fixed timer.
-   Images use configured duration with animated progress bar.
+   DIGITAL SIGNAGE — script.js  v3 (memory-safe)
+   - Video elements properly paused + src cleared before removal
+   - RAF agenda loop uses cancelAnimationFrame handle
+   - All timers/intervals tracked and cleared
+   - No DOM node accumulation
+   - Page Visibility API: pause video when tab hidden
    ============================================================ */
 
 'use strict';
@@ -14,12 +17,13 @@ const STATE = {
     currentTemplateIndex: 0,
     currentAdIndex: 0,
 
-    templateTimer:  null,   // for image auto-advance
+    templateTimer:  null,
     adTimer:        null,
     adTriggerTimer: null,
-    progressTimer:  null,
+    _badgeTimer:    null,
+    _adCdInterval:  null,
+    _agendaRAF:     null,   // cancelAnimationFrame handle
 
-    // prevent double-advance when video ends near scheduled timer
     advancing: false,
 };
 
@@ -27,7 +31,7 @@ const STATE = {
    INIT
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 Digital Signage v2 initialized');
+    console.log('Digital Signage v3 (memory-safe) initialized');
     console.log('Templates:', STATE.templates.length);
     console.log('Ads:', STATE.ads.length);
 
@@ -56,7 +60,6 @@ function updateDateTime() {
 
     const h = String(now.getHours()).padStart(2,'0');
     const m = String(now.getMinutes()).padStart(2,'0');
-    // blinking colon
     const colon = now.getSeconds() % 2 === 0 ? ':' : '<span style="opacity:.2">:</span>';
 
     const timeEl = document.getElementById('current-time');
@@ -70,21 +73,18 @@ function updateDateTime() {
 
 /* ============================================================
    AGENDA AUTO SCROLL
+   Uses requestAnimationFrame with stored handle (cancelable).
+   dt is capped at 0.1s to prevent jump after tab switch.
    ============================================================ */
 function initAgendaScroll() {
     const container = document.getElementById('agenda-list');
     const cards     = Array.from(container.querySelectorAll('.agenda-card'));
-
     if (cards.length === 0) return;
 
-    // Create inner wrapper
     const inner = document.createElement('div');
     inner.id = 'agenda-list-inner';
-
-    // Move existing cards in
     cards.forEach(c => inner.appendChild(c));
 
-    // Duplicate if needed for infinite scroll
     if (cards.length >= 2) {
         cards.forEach(c => {
             const clone = c.cloneNode(true);
@@ -96,49 +96,42 @@ function initAgendaScroll() {
     container.appendChild(inner);
     initAgendaClickHandlers();
 
-    // Measure one-set height then animate
     requestAnimationFrame(() => {
         const setHeight = cards.reduce((sum, c) => sum + c.offsetHeight + 9, 0);
         if (setHeight === 0) return;
 
-        let pos = 0;
-        const speed = 18; // px per second
-        let last = null;
+        let pos    = 0;
+        let last   = null;
         let paused = false;
+        const speed = 18; // px/sec
 
-        container.addEventListener('mouseenter', () => paused = true);
-        container.addEventListener('mouseleave',  () => paused = false);
+        container.addEventListener('mouseenter', () => { paused = true;  });
+        container.addEventListener('mouseleave',  () => { paused = false; });
 
         function step(ts) {
-            if (!last) last = ts;
-            const dt = (ts - last) / 1000;
-            last = ts;
-
-            if (!paused) {
+            if (last !== null && !paused) {
+                const dt = Math.min((ts - last) / 1000, 0.1);
                 pos += speed * dt;
                 if (pos >= setHeight) pos -= setHeight;
                 inner.style.transform = `translateY(-${pos}px)`;
             }
-            requestAnimationFrame(step);
+            last = ts;
+            STATE._agendaRAF = requestAnimationFrame(step);
         }
-        requestAnimationFrame(step);
+
+        STATE._agendaRAF = requestAnimationFrame(step);
     });
 }
 
 /* ============================================================
-   NEWS TICKER DUPLICATE
+   NEWS TICKER — duplicate chips for seamless loop
    ============================================================ */
 function initNewsScroll() {
     const track = document.getElementById('news-ticker');
     if (!track) return;
     const chips = Array.from(track.querySelectorAll('.news-chip'));
     if (chips.length === 0) return;
-
-    // Duplicate for seamless loop
-    chips.forEach(chip => {
-        const clone = chip.cloneNode(true);
-        track.appendChild(clone);
-    });
+    chips.forEach(chip => track.appendChild(chip.cloneNode(true)));
 }
 
 /* ============================================================
@@ -148,11 +141,9 @@ function initAgendaClickHandlers() {
     document.querySelectorAll('.agenda-card:not(.clone)').forEach(card => {
         card.addEventListener('click', () => {
             document.querySelectorAll('.agenda-card').forEach(c => c.classList.remove('active'));
-            // activate all copies (original + clone)
             const id = card.dataset.id;
             document.querySelectorAll(`.agenda-card[data-id="${id}"]`).forEach(c => c.classList.add('active'));
 
-            // Pause rotation, show agenda media
             clearTimeout(STATE.templateTimer);
             clearTimeout(STATE.adTriggerTimer);
             stopProgress();
@@ -164,14 +155,12 @@ function initAgendaClickHandlers() {
 
 function displayManualMedia(type, path) {
     const display = document.getElementById('media-display');
-    clearDisplay(display);
+    safeCleanDisplay(display);
 
     if (type === 'photo' || type === 'image') {
-        const img = buildImg('/' + path);
-        display.appendChild(img);
+        display.appendChild(buildImg('/' + path));
     } else if (type === 'video') {
-        const vid = buildVideo('/' + path, false); // not looping for manual
-        display.appendChild(vid);
+        display.appendChild(buildVideo('/' + path, false));
     }
     hideBadge();
 }
@@ -181,7 +170,7 @@ function displayManualMedia(type, path) {
    ============================================================ */
 function startTemplateRotation() {
     if (STATE.templates.length === 0) {
-        console.warn('⚠️  No templates');
+        console.warn('No templates available');
         return;
     }
     displayTemplate(0);
@@ -197,9 +186,10 @@ function displayTemplate(index) {
     const tpl     = STATE.templates[index];
     const display = document.getElementById('media-display');
 
-    console.log(`📺 Template ${index + 1}/${STATE.templates.length}: "${tpl.template_name}" [${tpl.template_type}]`);
+    console.log(`Template ${index + 1}/${STATE.templates.length}: "${tpl.template_name}" [${tpl.template_type}]`);
 
-    clearDisplay(display);
+    // CRITICAL: destroy previous media elements properly
+    safeCleanDisplay(display);
     stopProgress();
     clearTimeout(STATE.templateTimer);
 
@@ -210,14 +200,13 @@ function displayTemplate(index) {
     } else if (tpl.template_type === 'video') {
         showVideoTemplate(display, tpl, index);
     } else {
-        // unknown type — advance after fallback duration
-        scheduleNextTemplate(index, tpl.duration || 10);
+        // unknown — fallback after 10s
+        STATE.templateTimer = setTimeout(() => advanceTemplate(index), 10000);
     }
 
     scheduleAd(tpl.template_type === 'video' ? null : tpl.duration);
 }
 
-/* --- Image Template --- */
 function showImageTemplate(display, tpl, index) {
     const img = buildImg('/' + tpl.file_path);
     display.appendChild(img);
@@ -225,35 +214,29 @@ function showImageTemplate(display, tpl, index) {
     const dur = tpl.duration || 10;
     startProgress(dur);
 
-    STATE.templateTimer = setTimeout(() => {
-        advanceTemplate(index);
-    }, dur * 1000);
+    STATE.templateTimer = setTimeout(() => advanceTemplate(index), dur * 1000);
 }
 
-/* --- Video Template --- */
 function showVideoTemplate(display, tpl, index) {
     const vid = buildVideo('/' + tpl.file_path, false);
 
-    // When video ends naturally → advance
     vid.addEventListener('ended', () => {
-        console.log('🎬 Video ended, advancing');
+        console.log('Video ended, advancing');
         advanceTemplate(index);
     });
 
-    // Error fallback
     vid.addEventListener('error', () => {
-        console.error('❌ Video error, skipping in 3s');
+        console.error('Video load error, skipping in 3s');
         setTimeout(() => advanceTemplate(index), 3000);
     });
 
     display.appendChild(vid);
-    // No timer — duration comes from video itself
+    // No setTimeout — duration driven by video's natural end
 }
 
-/* --- Advance helper (debounced) --- */
 function advanceTemplate(fromIndex) {
     if (STATE.advancing) return;
-    if (STATE.currentTemplateIndex !== fromIndex) return; // stale call
+    if (STATE.currentTemplateIndex !== fromIndex) return;
     STATE.advancing = true;
 
     clearTimeout(STATE.templateTimer);
@@ -262,11 +245,36 @@ function advanceTemplate(fromIndex) {
     setTimeout(() => {
         STATE.advancing = false;
         displayTemplate(fromIndex + 1);
-    }, 50);
+    }, 80);
 }
 
 /* ============================================================
-   MEDIA ELEMENT BUILDERS
+   SAFE DISPLAY CLEANUP
+   Most important function for preventing crashes.
+   Video decoders must be explicitly released by:
+     1. pause()
+     2. removeAttribute('src')
+     3. load()  — triggers abort of network + frees GPU decoder
+   ============================================================ */
+function safeCleanDisplay(display) {
+    const mediaEls = display.querySelectorAll('.media-el');
+    mediaEls.forEach(el => {
+        if (el.tagName === 'VIDEO') {
+            try {
+                el.pause();
+                el.removeAttribute('src');
+                el.load();
+            } catch(e) { /* ignore */ }
+        }
+        el.remove();
+    });
+
+    const placeholder = display.querySelector('.media-placeholder');
+    if (placeholder) placeholder.remove();
+}
+
+/* ============================================================
+   MEDIA BUILDERS
    ============================================================ */
 function buildImg(src) {
     const img = document.createElement('img');
@@ -276,29 +284,16 @@ function buildImg(src) {
     return img;
 }
 
-function buildVideo(src, loop = true) {
+function buildVideo(src, loop = false) {
     const vid = document.createElement('video');
-    vid.src  = src;
-    vid.className = 'media-el';
-    vid.autoplay  = true;
-    vid.muted     = true;
-    vid.loop      = loop;
+    vid.src         = src;
+    vid.className   = 'media-el';
+    vid.autoplay    = true;
+    vid.muted       = true;
+    vid.loop        = loop;
     vid.playsInline = true;
+    vid.preload     = 'auto';
     return vid;
-}
-
-/* ============================================================
-   CLEAR DISPLAY
-   ============================================================ */
-function clearDisplay(display) {
-    // Remove all media elements (keep progress bar and badge)
-    Array.from(display.children).forEach(child => {
-        if (child.classList.contains('media-el') || child.classList.contains('media-placeholder')) {
-            child.remove();
-        }
-    });
-
-    // If display is now empty of media, show nothing (progress/badge stay)
 }
 
 /* ============================================================
@@ -313,8 +308,6 @@ function startProgress(durationSec) {
     bar.style.width = '0%';
     wrap.classList.add('visible');
 
-    clearTimeout(STATE.progressTimer);
-
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
             bar.style.transition = `width ${durationSec}s linear`;
@@ -327,7 +320,6 @@ function stopProgress() {
     const wrap = document.getElementById('media-progress');
     const bar  = document.getElementById('media-progress-bar');
     if (!wrap || !bar) return;
-
     wrap.classList.remove('visible');
     bar.style.transition = 'none';
     bar.style.width = '0%';
@@ -340,10 +332,8 @@ function showBadge(name) {
     const badge = document.getElementById('template-badge');
     const text  = document.getElementById('template-badge-text');
     if (!badge || !text) return;
-
     text.textContent = name || '—';
     badge.classList.add('show');
-
     clearTimeout(STATE._badgeTimer);
     STATE._badgeTimer = setTimeout(() => badge.classList.remove('show'), 3500);
 }
@@ -360,30 +350,29 @@ function scheduleAd(templateDurationSec) {
     if (STATE.ads.length === 0) return;
 
     const ad = STATE.ads[STATE.currentAdIndex];
-
     let delay;
+
     if (templateDurationSec == null) {
-        // Video — show ad after trigger_time seconds
         delay = (ad.trigger_time || 10) * 1000;
     } else {
-        // Image — show ad before template ends
         const showAt = templateDurationSec - (ad.trigger_time || 8);
         delay = Math.max(0, showAt) * 1000;
     }
 
-    console.log(`📢 Ad "${ad.ad_name}" scheduled in ${(delay/1000).toFixed(1)}s`);
-
-    STATE.adTriggerTimer = setTimeout(() => {
-        showAd(ad);
-    }, delay);
+    STATE.adTriggerTimer = setTimeout(() => showAd(ad), delay);
 }
 
 function showAd(ad) {
-    console.log(`📢 Showing AD: ${ad.ad_name}`);
+    console.log(`AD: ${ad.ad_name}`);
     const popup   = document.getElementById('ad-popup');
     const content = document.getElementById('ad-content');
     const cdEl    = document.getElementById('ad-countdown');
 
+    // Release previous ad video
+    const oldVid = content.querySelector('video');
+    if (oldVid) {
+        try { oldVid.pause(); oldVid.removeAttribute('src'); oldVid.load(); } catch(e){}
+    }
     content.innerHTML = '';
 
     if (ad.ad_type === 'image') {
@@ -396,7 +385,6 @@ function showAd(ad) {
 
     const dur = ad.duration || 10;
     let remaining = dur;
-
     if (cdEl) cdEl.textContent = `${remaining}s`;
 
     clearInterval(STATE._adCdInterval);
@@ -407,20 +395,28 @@ function showAd(ad) {
     }, 1000);
 
     clearTimeout(STATE.adTimer);
-    STATE.adTimer = setTimeout(() => {
-        popup.classList.add('hidden');
-        clearInterval(STATE._adCdInterval);
-    }, dur * 1000);
+    STATE.adTimer = setTimeout(() => closeAd(), dur * 1000);
 
     STATE.currentAdIndex = (STATE.currentAdIndex + 1) % STATE.ads.length;
 }
 
+function closeAd() {
+    const popup   = document.getElementById('ad-popup');
+    const content = document.getElementById('ad-content');
+
+    // Release video decoder
+    const vid = content.querySelector('video');
+    if (vid) {
+        try { vid.pause(); vid.removeAttribute('src'); vid.load(); } catch(e){}
+    }
+
+    popup.classList.add('hidden');
+    clearTimeout(STATE.adTimer);
+    clearInterval(STATE._adCdInterval);
+}
+
 function initAdHandlers() {
-    document.getElementById('ad-close')?.addEventListener('click', () => {
-        document.getElementById('ad-popup').classList.add('hidden');
-        clearTimeout(STATE.adTimer);
-        clearInterval(STATE._adCdInterval);
-    });
+    document.getElementById('ad-close')?.addEventListener('click', closeAd);
 }
 
 /* ============================================================
@@ -441,6 +437,19 @@ function initFloatingMenu() {
         overlay.classList.remove('active');
     });
 }
+
+/* ============================================================
+   PAGE VISIBILITY API
+   Free GPU decoder when tab is backgrounded
+   ============================================================ */
+document.addEventListener('visibilitychange', () => {
+    const vids = document.querySelectorAll('.media-el');
+    if (document.hidden) {
+        vids.forEach(v => { if (v.tagName === 'VIDEO') { try { v.pause(); } catch(e){} } });
+    } else {
+        vids.forEach(v => { if (v.tagName === 'VIDEO') { try { v.play(); } catch(e){} } });
+    }
+});
 
 /* ============================================================
    KEYBOARD SHORTCUTS

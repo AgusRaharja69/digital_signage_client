@@ -4,77 +4,128 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photobooth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/photobooth.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Exo+2:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/photobooth/static/css/photobooth.css">
 </head>
 <body>
-    <div class="photobooth-container">
-        <div class="header">
-            <a href="{{ url_for('index') }}" class="back-button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M19 12H5M12 19l-7-7 7-7"/>
-                </svg>
-                Kembali
-            </a>
-            <h1>PHOTOBOOTH</h1>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 1 — IDLE / FRAME SELECT
+     ═══════════════════════════════════════════════ -->
+<div class="screen active" id="screen-idle">
+    <div class="idle-bg"></div>
+
+    <header class="pb-header">
+        <h1 class="pb-title">📸 Photobooth</h1>
+        <p class="pb-subtitle">Pilih frame lalu mulai sesi foto kamu!</p>
+    </header>
+
+    <!-- Frame Selector -->
+    <div class="frame-selector" id="frame-selector">
+        {% for frame in frames %}
+        <div class="frame-thumb {{ 'selected' if loop.first else '' }}"
+             data-frame="{{ frame }}"
+             onclick="selectFrame(this)">
+            <img src="/photobooth/imgs/frames/{{ frame }}" alt="{{ frame }}">
+            <div class="frame-check">✓</div>
+            <span class="frame-label">Frame {{ loop.index }}</span>
         </div>
-        
-        <div class="camera-section">
-            <div class="camera-container">
-                <video id="video" autoplay playsinline></video>
-                <canvas id="canvas" style="display: none;"></canvas>
-                <div id="preview" class="preview-container" style="display: none;">
-                    <img id="preview-image" src="" alt="Preview">
-                </div>
-                
-                <!-- Countdown overlay -->
-                <div id="countdown" class="countdown" style="display: none;">
-                    <span id="countdown-number">3</span>
-                </div>
-                
-                <!-- Flash effect -->
-                <div id="flash" class="flash"></div>
+        {% endfor %}
+    </div>
+
+    <button class="btn-start" id="btn-start" onclick="startSession()">
+        <span class="btn-icon">📷</span>
+        Start Capture
+    </button>
+
+    <a href="/" class="btn-back-home">← Kembali</a>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 2 — CAPTURE SESSION
+     ═══════════════════════════════════════════════ -->
+<div class="screen" id="screen-capture">
+
+    <!-- Left: Live strip preview -->
+    <div class="strip-panel">
+        <div class="strip-title">HASIL FOTO</div>
+        <div class="strip-slots" id="strip-slots">
+            <div class="strip-slot" id="strip-0">
+                <span class="slot-num">1</span>
             </div>
-            
-            <div class="controls">
-                <button id="capture-btn" class="control-button capture">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="12" cy="12" r="10"/>
-                    </svg>
-                    Ambil Foto
-                </button>
-                
-                <div id="preview-controls" style="display: none;">
-                    <button id="retake-btn" class="control-button retake">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
-                            <path d="M21 3v5h-5"/>
-                        </svg>
-                        Ulangi
-                    </button>
-                    <button id="save-btn" class="control-button save">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                            <polyline points="17 21 17 13 7 13 7 21"/>
-                            <polyline points="7 3 7 8 15 8"/>
-                        </svg>
-                        Simpan
-                    </button>
-                </div>
+            <div class="strip-slot" id="strip-1">
+                <span class="slot-num">2</span>
             </div>
-            
-            <!-- Status message -->
-            <div id="status-message" class="status-message"></div>
-        </div>
-        
-        <!-- Gallery Section -->
-        <div class="gallery-section">
-            <h2>Galeri Foto Terbaru</h2>
-            <div id="gallery" class="gallery-grid">
-                <!-- Photos will be loaded here dynamically -->
+            <div class="strip-slot" id="strip-2">
+                <span class="slot-num">3</span>
             </div>
         </div>
     </div>
-    
-    <script src="{{ url_for('static', filename='js/photobooth.js') }}"></script>
+
+    <!-- Center: Camera feed -->
+    <div class="camera-panel">
+        <div class="photo-counter" id="photo-counter">Foto 1 dari 3</div>
+
+        <div class="camera-wrap" id="camera-wrap">
+            <video id="camera-feed" autoplay muted playsinline></video>
+            <canvas id="snapshot-canvas" style="display:none"></canvas>
+
+            <!-- Flash overlay -->
+            <div class="camera-flash" id="camera-flash"></div>
+
+            <!-- Countdown overlay -->
+            <div class="countdown-overlay" id="countdown-overlay">
+                <div class="countdown-number" id="countdown-number">5</div>
+            </div>
+        </div>
+
+        <!-- Status message -->
+        <div class="capture-status" id="capture-status">Bersiap…</div>
+    </div>
+
+    <!-- Right: Info -->
+    <div class="info-panel">
+        <div class="progress-dots" id="progress-dots">
+            <div class="dot" id="dot-0"></div>
+            <div class="dot" id="dot-1"></div>
+            <div class="dot" id="dot-2"></div>
+        </div>
+        <p class="info-hint">Foto akan diambil otomatis<br>saat hitung mundur selesai</p>
+        <div class="selected-frame-preview">
+            <p>Frame dipilih:</p>
+            <img id="selected-frame-thumb" src="" alt="frame">
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 3 — COMPOSITING LOADING
+     ═══════════════════════════════════════════════ -->
+<div class="screen" id="screen-processing">
+    <div class="processing-wrap">
+        <div class="spinner"></div>
+        <p class="processing-text">Menyusun foto…</p>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SCREEN 4 — RESULT PREVIEW (10s)
+     ═══════════════════════════════════════════════ -->
+<div class="screen" id="screen-result">
+    <div class="result-wrap">
+        <h2 class="result-title">✨ Foto Siap!</h2>
+        <div class="result-frame-wrap">
+            <img id="result-img" src="" alt="hasil foto">
+        </div>
+        <div class="result-countdown-bar">
+            <div class="result-countdown-fill" id="result-bar"></div>
+        </div>
+        <p class="result-hint" id="result-hint">Kembali ke beranda dalam <span id="result-sec">10</span> detik…</p>
+        <button class="btn-home" onclick="goHome()">🏠 Kembali Sekarang</button>
+    </div>
+</div>
+
+<script src="/photobooth/static/js/photobooth.js"></script>
 </body>
 </html>

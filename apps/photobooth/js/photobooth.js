@@ -1,220 +1,284 @@
-// Camera and capture functionality
-let videoStream = null;
-let capturedImageData = null;
+/* ============================================================
+   PHOTOBOOTH — photobooth.js
+   State machine:
+     IDLE → CAPTURE (x3) → PROCESSING → RESULT (10s) → HOME
+   ============================================================ */
 
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const preview = document.getElementById('preview');
-const previewImage = document.getElementById('preview-image');
-const captureBtn = document.getElementById('capture-btn');
-const retakeBtn = document.getElementById('retake-btn');
-const saveBtn = document.getElementById('save-btn');
-const previewControls = document.getElementById('preview-controls');
-const countdown = document.getElementById('countdown');
-const countdownNumber = document.getElementById('countdown-number');
-const flash = document.getElementById('flash');
-const statusMessage = document.getElementById('status-message');
+'use strict';
 
-// Initialize camera
-async function initCamera() {
+/* ── State ────────────────────────────────────────────────── */
+const PB = {
+    selectedFrame: null,      // filename e.g. "frame1.png"
+    capturedPhotos: [],       // array of base64 data-URLs (max 3)
+    currentShot: 0,           // 0, 1, 2
+    countdownValue: 5,
+    countdownTimer: null,
+    resultTimer: null,
+    stream: null,             // MediaStream
+};
+
+/* ── DOM refs ─────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+
+/* ── Screens ─────────────────────────────────────────────── */
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const el = $(id);
+    if (el) el.classList.add('active');
+}
+
+/* ══════════════════════════════════════════════════════════
+   SCREEN 1 — IDLE / FRAME SELECT
+   ══════════════════════════════════════════════════════════ */
+function selectFrame(el) {
+    document.querySelectorAll('.frame-thumb').forEach(t => t.classList.remove('selected'));
+    el.classList.add('selected');
+    PB.selectedFrame = el.dataset.frame;
+}
+
+async function startSession() {
+    // Determine selected frame
+    const sel = document.querySelector('.frame-thumb.selected');
+    if (!sel) { alert('Pilih frame terlebih dahulu!'); return; }
+    PB.selectedFrame = sel.dataset.frame;
+
+    // Show selected frame in capture screen
+    $('selected-frame-thumb').src = `/photobooth/imgs/frames/${PB.selectedFrame}`;
+
+    // Reset state
+    PB.capturedPhotos = [];
+    PB.currentShot    = 0;
+    resetStripSlots();
+    resetDots();
+
+    showScreen('screen-capture');
+
+    // Start webcam
     try {
-        const constraints = {
-            video: {
-                width: { ideal: 1280 },
-                height: { ideal: 960 },
-                facingMode: 'user'
-            },
+        PB.stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false
-        };
-        
-        videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = videoStream;
-        
-        showStatus('Kamera siap!', 'success');
-        setTimeout(() => hideStatus(), 2000);
-    } catch (error) {
-        console.error('Error accessing camera:', error);
-        showStatus('Tidak dapat mengakses kamera. Pastikan izin kamera diaktifkan.', 'error');
-    }
-}
-
-// Countdown before capture
-function startCountdown() {
-    return new Promise((resolve) => {
-        let count = 3;
-        countdownNumber.textContent = count;
-        countdown.style.display = 'flex';
-        
-        const countInterval = setInterval(() => {
-            count--;
-            if (count > 0) {
-                countdownNumber.textContent = count;
-                // Reset animation
-                countdownNumber.style.animation = 'none';
-                setTimeout(() => {
-                    countdownNumber.style.animation = 'pulse 1s ease-in-out';
-                }, 10);
-            } else {
-                clearInterval(countInterval);
-                countdown.style.display = 'none';
-                resolve();
-            }
-        }, 1000);
-    });
-}
-
-// Capture photo
-async function capturePhoto() {
-    captureBtn.disabled = true;
-    
-    // Start countdown
-    await startCountdown();
-    
-    // Flash effect
-    flash.classList.add('active');
-    setTimeout(() => {
-        flash.classList.remove('active');
-    }, 500);
-    
-    // Set canvas size to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    
-    // Draw current video frame to canvas
-    const context = canvas.getContext('2d');
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // Get image data
-    capturedImageData = canvas.toDataURL('image/png');
-    
-    // Show preview
-    previewImage.src = capturedImageData;
-    video.style.display = 'none';
-    preview.style.display = 'block';
-    
-    // Show preview controls
-    captureBtn.style.display = 'none';
-    previewControls.style.display = 'flex';
-    
-    captureBtn.disabled = false;
-}
-
-// Retake photo
-function retakePhoto() {
-    video.style.display = 'block';
-    preview.style.display = 'none';
-    captureBtn.style.display = 'flex';
-    previewControls.style.display = 'none';
-    capturedImageData = null;
-}
-
-// Save photo
-async function savePhoto() {
-    if (!capturedImageData) {
-        showStatus('Tidak ada foto untuk disimpan', 'error');
+        });
+        $('camera-feed').srcObject = PB.stream;
+        await $('camera-feed').play();
+    } catch (err) {
+        console.error('Camera error:', err);
+        $('capture-status').textContent = '⚠ Tidak bisa akses kamera: ' + err.message;
         return;
     }
-    
-    saveBtn.disabled = true;
-    showStatus('Menyimpan foto...', 'success');
-    
+
+    // Start first countdown
+    setTimeout(() => beginCountdown(), 800);
+}
+
+/* ══════════════════════════════════════════════════════════
+   COUNTDOWN → CAPTURE
+   ══════════════════════════════════════════════════════════ */
+function beginCountdown() {
+    const shotNum = PB.currentShot + 1;
+    $('photo-counter').textContent = `Foto ${shotNum} dari 3`;
+    setDotActive(PB.currentShot);
+
+    let count = 5;
+    $('countdown-number').textContent = count;
+    $('countdown-overlay').classList.add('active');
+    $('capture-status').textContent = `Bersiap untuk foto ${shotNum}…`;
+
+    clearInterval(PB.countdownTimer);
+    PB.countdownTimer = setInterval(() => {
+        count--;
+        // Re-trigger pop animation
+        const el = $('countdown-number');
+        el.textContent = count;
+        el.style.animation = 'none';
+        void el.offsetWidth; // reflow
+        el.style.animation = 'countPop .4s cubic-bezier(.22,1,.36,1)';
+
+        if (count <= 0) {
+            clearInterval(PB.countdownTimer);
+            $('countdown-overlay').classList.remove('active');
+            capturePhoto();
+        }
+    }, 1000);
+}
+
+function capturePhoto() {
+    const video    = $('camera-feed');
+    const canvas   = $('snapshot-canvas');
+    const ctx      = canvas.getContext('2d');
+
+    canvas.width  = video.videoWidth  || 1280;
+    canvas.height = video.videoHeight || 720;
+
+    // Mirror horizontally (undo the CSS scaleX(-1) so saved photo is normal)
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const dataURL = canvas.toDataURL('image/jpeg', 0.92);
+    PB.capturedPhotos.push(dataURL);
+
+    // Flash
+    const flash = $('camera-flash');
+    flash.classList.add('flash-anim');
+    flash.addEventListener('animationend', () => flash.classList.remove('flash-anim'), { once: true });
+
+    // Update strip slot
+    fillStripSlot(PB.currentShot, dataURL);
+    setDotDone(PB.currentShot);
+
+    $('capture-status').textContent = `Foto ${PB.currentShot + 1} diambil! ✓`;
+
+    PB.currentShot++;
+
+    if (PB.currentShot < 3) {
+        // Next shot after 1.5s pause
+        setTimeout(() => beginCountdown(), 1500);
+    } else {
+        // All 3 done — compose
+        setTimeout(() => composeAndSave(), 1000);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════
+   COMPOSE & SAVE
+   ══════════════════════════════════════════════════════════ */
+async function composeAndSave() {
+    // Stop camera
+    stopCamera();
+
+    showScreen('screen-processing');
+
     try {
-        const response = await fetch('/api/capture', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+        const resp = await fetch('/photobooth/compose', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                image: capturedImageData
+                photos: PB.capturedPhotos,
+                frame:  PB.selectedFrame
             })
         });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showStatus('Foto berhasil disimpan!', 'success');
-            
-            // Add to gallery
-            addPhotoToGallery(capturedImageData);
-            
-            // Reset after 2 seconds
-            setTimeout(() => {
-                retakePhoto();
-                hideStatus();
-            }, 2000);
-        } else {
-            showStatus('Gagal menyimpan foto: ' + (result.error || 'Unknown error'), 'error');
+
+        const result = await resp.json();
+
+        if (!result.success) {
+            throw new Error(result.error || 'Compose failed');
         }
-    } catch (error) {
-        console.error('Error saving photo:', error);
-        showStatus('Terjadi kesalahan saat menyimpan foto', 'error');
-    } finally {
-        saveBtn.disabled = false;
+
+        showResultScreen(result.url);
+
+    } catch (err) {
+        console.error('Compose error:', err);
+        alert('Gagal menyusun foto: ' + err.message);
+        goHome();
     }
 }
 
-// Add photo to gallery
-function addPhotoToGallery(imageData) {
-    const gallery = document.getElementById('gallery');
-    
-    const galleryItem = document.createElement('div');
-    galleryItem.className = 'gallery-item';
-    
+/* ══════════════════════════════════════════════════════════
+   RESULT SCREEN (10s countdown)
+   ══════════════════════════════════════════════════════════ */
+function showResultScreen(imageUrl) {
+    $('result-img').src = imageUrl;
+    showScreen('screen-result');
+
+    // Countdown bar
+    const bar  = $('result-bar');
+    const secEl= $('result-sec');
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+
+    let remaining = 10;
+    secEl.textContent = remaining;
+
+    // Trigger CSS transition
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            bar.style.transition = 'width 10s linear';
+            bar.style.width      = '0%';
+        });
+    });
+
+    clearInterval(PB.resultTimer);
+    PB.resultTimer = setInterval(() => {
+        remaining--;
+        secEl.textContent = remaining;
+        if (remaining <= 0) {
+            clearInterval(PB.resultTimer);
+            goHome();
+        }
+    }, 1000);
+}
+
+function goHome() {
+    clearInterval(PB.resultTimer);
+    clearInterval(PB.countdownTimer);
+    stopCamera();
+    window.location.href = '/';
+}
+
+/* ══════════════════════════════════════════════════════════
+   HELPERS
+   ══════════════════════════════════════════════════════════ */
+function stopCamera() {
+    if (PB.stream) {
+        PB.stream.getTracks().forEach(t => t.stop());
+        PB.stream = null;
+        $('camera-feed').srcObject = null;
+    }
+}
+
+function fillStripSlot(index, dataURL) {
+    const slot = $(`strip-${index}`);
+    if (!slot) return;
+    slot.classList.add('filled');
     const img = document.createElement('img');
-    img.src = imageData;
-    img.alt = 'Captured photo';
-    
-    galleryItem.appendChild(img);
-    gallery.insertBefore(galleryItem, gallery.firstChild);
-    
-    // Keep only last 12 photos in gallery
-    while (gallery.children.length > 12) {
-        gallery.removeChild(gallery.lastChild);
+    img.src = dataURL;
+    // Remove slot-num span
+    slot.querySelector('.slot-num')?.remove();
+    slot.appendChild(img);
+}
+
+function resetStripSlots() {
+    for (let i = 0; i < 3; i++) {
+        const slot = $(`strip-${i}`);
+        if (!slot) continue;
+        slot.classList.remove('filled');
+        const img = slot.querySelector('img');
+        if (img) img.remove();
+        if (!slot.querySelector('.slot-num')) {
+            const span = document.createElement('span');
+            span.className = 'slot-num';
+            span.textContent = i + 1;
+            slot.appendChild(span);
+        }
     }
 }
 
-// Load recent photos
-async function loadRecentPhotos() {
-    // This would typically fetch from the server
-    // For now, we'll just show a placeholder message
-    const gallery = document.getElementById('gallery');
-    
-    if (gallery.children.length === 0) {
-        const placeholder = document.createElement('div');
-        placeholder.style.gridColumn = '1 / -1';
-        placeholder.style.textAlign = 'center';
-        placeholder.style.padding = '40px';
-        placeholder.style.color = '#999';
-        placeholder.innerHTML = '<p style="font-size: 18px;">Belum ada foto yang diambil</p>';
-        gallery.appendChild(placeholder);
+function resetDots() {
+    for (let i = 0; i < 3; i++) {
+        const dot = $(`dot-${i}`);
+        if (dot) { dot.classList.remove('done', 'active'); }
     }
 }
 
-// Show status message
-function showStatus(message, type) {
-    statusMessage.textContent = message;
-    statusMessage.className = `status-message ${type}`;
+function setDotActive(index) {
+    resetDots();
+    for (let i = 0; i < index; i++) setDotDone(i);
+    const dot = $(`dot-${index}`);
+    if (dot) dot.classList.add('active');
 }
 
-// Hide status message
-function hideStatus() {
-    statusMessage.style.display = 'none';
+function setDotDone(index) {
+    const dot = $(`dot-${index}`);
+    if (dot) { dot.classList.remove('active'); dot.classList.add('done'); }
 }
 
-// Event listeners
-captureBtn.addEventListener('click', capturePhoto);
-retakeBtn.addEventListener('click', retakePhoto);
-saveBtn.addEventListener('click', savePhoto);
-
-// Initialize
+/* ── Init ─────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', () => {
-    initCamera();
-    loadRecentPhotos();
-});
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-    if (videoStream) {
-        videoStream.getTracks().forEach(track => track.stop());
+    // Set first frame as selected by default
+    const first = document.querySelector('.frame-thumb');
+    if (first) {
+        PB.selectedFrame = first.dataset.frame;
     }
+    showScreen('screen-idle');
 });
