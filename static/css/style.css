@@ -486,10 +486,9 @@ html, body {
     padding: 14px 22px;
     font-size: 16px;
     color: var(--text-pri);
-    line-height: 1.4;
+    line-height: 1;
     flex-shrink: 0;
-    white-space: normal;
-    max-width: 380px;
+    white-space: nowrap;
 }
 
 .news-arrow {
