@@ -44,42 +44,47 @@
 <div class="screen" id="screen-capture">
     <div class="capture-layout">
 
-        <!-- LEFT: Live preview strip -->
+        <!-- TOP ROW: camera + side panel -->
+        <div class="capture-top">
+
+            <!-- CENTER: Camera + countdown -->
+            <div class="camera-panel">
+                <div class="shot-info" id="shot-info">Foto 1 dari 3</div>
+
+                <div class="camera-box" id="camera-box">
+                    <video id="camera-feed" autoplay muted playsinline></video>
+                    <div class="cam-flash"  id="cam-flash"></div>
+                    <div class="cam-countdown hidden" id="cam-countdown">
+                        <span id="cd-number">5</span>
+                    </div>
+                </div>
+
+                <div class="status-bar" id="status-bar">Memulai kamera…</div>
+            </div>
+
+            <!-- RIGHT: Dots + frame thumb -->
+            <div class="side-panel">
+                <div class="dots" id="dots">
+                    <div class="dot" id="dot-0"></div>
+                    <div class="dot" id="dot-1"></div>
+                    <div class="dot" id="dot-2"></div>
+                </div>
+                <p class="side-hint">Foto otomatis saat<br>hitung mundur selesai</p>
+                <div class="frame-mini">
+                    <p>Frame:</p>
+                    <img id="frame-mini-img" src="" alt="">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- BOTTOM: Landscape strip preview -->
         <div class="strip-panel">
             <div class="strip-label">HASIL FOTO</div>
             <div class="strip-slots">
                 <div class="strip-slot" id="strip-0"><span>1</span></div>
                 <div class="strip-slot" id="strip-1"><span>2</span></div>
                 <div class="strip-slot" id="strip-2"><span>3</span></div>
-            </div>
-        </div>
-
-        <!-- CENTER: Camera + countdown -->
-        <div class="camera-panel">
-            <div class="shot-info" id="shot-info">Foto 1 dari 3</div>
-
-            <div class="camera-box" id="camera-box">
-                <video id="camera-feed" autoplay muted playsinline></video>
-                <div class="cam-flash"  id="cam-flash"></div>
-                <div class="cam-countdown hidden" id="cam-countdown">
-                    <span id="cd-number">5</span>
-                </div>
-            </div>
-
-            <div class="status-bar" id="status-bar">Memulai kamera…</div>
-        </div>
-
-        <!-- RIGHT: Dots + frame thumb -->
-        <div class="side-panel">
-            <div class="dots" id="dots">
-                <div class="dot" id="dot-0"></div>
-                <div class="dot" id="dot-1"></div>
-                <div class="dot" id="dot-2"></div>
-            </div>
-            <p class="side-hint">Foto otomatis saat<br>hitung mundur selesai</p>
-            <div class="frame-mini">
-                <p>Frame:</p>
-                <img id="frame-mini-img" src="" alt="">
             </div>
         </div>
 
