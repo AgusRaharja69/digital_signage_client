@@ -1,2 +1,2 @@
 db/
-mqtt_update/config.ini
+*.ini
