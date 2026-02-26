@@ -38,7 +38,9 @@
         <!-- Main Content -->
         <div class="main-content">
             <!-- Media Display -->
-            <div class="media-display" id="media-display"></div>
+            <div class="media-display" id="media-display">
+                <div class="placeholder-text">Loading...</div>
+            </div>
             
             <!-- News + Barcode Section -->
             <div class="bottom-section">
@@ -115,7 +117,7 @@
     <!-- Menu Overlay -->
     <div class="menu-overlay hidden" id="menu-overlay"></div>
     
-    <script>
+    <script type="text/javascript">
         window.SIGNAGE_DATA = {
             templates: {{ templates|tojson|safe }},
             advertisements: {{ ads|tojson|safe }},

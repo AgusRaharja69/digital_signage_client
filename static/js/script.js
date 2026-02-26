@@ -11,8 +11,8 @@ const STATE = {
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('🚀 Digital Signage initialized');
-    console.log('Templates:', STATE.templates.length);
-    console.log('Ads:', STATE.ads.length);
+    console.log('Templates:', STATE.templates);
+    console.log('Ads:', STATE.ads);
     
     initDateTime();
     initAgendaAutoScroll();
@@ -88,19 +88,27 @@ function initAgendaClickHandlers() {
 }
 
 function displayAgendaMedia(type, path) {
+    console.log('📺 Display agenda:', type, path);
+    
     const display = document.getElementById('media-display');
     display.innerHTML = '';
     
     if (type === 'photo') {
         const img = document.createElement('img');
         img.src = '/' + path;
-        img.className = 'media-content image active';
-        img.onerror = () => img.src = '/static/uploads/placeholder.jpg';
+        img.className = 'media-content image';
+        img.onerror = function() {
+            console.error('Failed to load:', path);
+            this.src = '/static/uploads/placeholder.jpg';
+        };
+        img.onload = function() {
+            console.log('✅ Image loaded successfully');
+        };
         display.appendChild(img);
     } else if (type === 'video') {
         const video = document.createElement('video');
         video.src = '/' + path;
-        video.className = 'media-content video active';
+        video.className = 'media-content video';
         video.autoplay = true;
         video.muted = true;
         video.loop = true;
@@ -110,7 +118,7 @@ function displayAgendaMedia(type, path) {
 
 function startTemplateRotation() {
     if (STATE.templates.length === 0) {
-        console.warn('No templates available');
+        console.warn('⚠️ No templates available');
         return;
     }
     displayTemplate(0);
@@ -122,7 +130,7 @@ function displayTemplate(index) {
     const template = STATE.templates[index];
     STATE.currentTemplateIndex = index;
     
-    console.log(`📺 Template: ${template.template_name} (${template.duration}s)`);
+    console.log(`📺 Template ${index + 1}/${STATE.templates.length}: ${template.template_name}`);
     
     const display = document.getElementById('media-display');
     display.innerHTML = '';
@@ -130,12 +138,14 @@ function displayTemplate(index) {
     if (template.template_type === 'image') {
         const img = document.createElement('img');
         img.src = '/' + template.file_path;
-        img.className = 'media-content image active';
+        img.className = 'media-content image';
+        img.onload = () => console.log('✅ Template image loaded');
+        img.onerror = () => console.error('❌ Failed to load template image');
         display.appendChild(img);
     } else if (template.template_type === 'video') {
         const video = document.createElement('video');
         video.src = '/' + template.file_path;
-        video.className = 'media-content video active';
+        video.className = 'media-content video';
         video.autoplay = true;
         video.muted = true;
         video.loop = true;
@@ -154,14 +164,14 @@ function scheduleAdvertisement(templateDuration) {
     clearTimeout(STATE.adTriggerTimer);
     
     if (STATE.ads.length === 0) {
-        console.log('⚠️ No ads available');
+        console.log('⚠️ No ads');
         return;
     }
     
     const ad = STATE.ads[STATE.currentAdIndex];
     const showAt = (templateDuration - (ad.trigger_time || 10)) * 1000;
     
-    console.log(`📢 Ad scheduled in ${showAt/1000}s`);
+    console.log(`📢 Ad in ${showAt/1000}s`);
     
     STATE.adTriggerTimer = setTimeout(() => {
         showAdvertisement(ad);
@@ -169,7 +179,7 @@ function scheduleAdvertisement(templateDuration) {
 }
 
 function showAdvertisement(ad) {
-    console.log(`📢 Showing ad: ${ad.ad_name}`);
+    console.log(`📢 AD: ${ad.ad_name}`);
     
     const popup = document.getElementById('ad-popup');
     const content = document.getElementById('ad-content');
@@ -193,7 +203,6 @@ function showAdvertisement(ad) {
     clearTimeout(STATE.adTimer);
     STATE.adTimer = setTimeout(() => {
         popup.classList.add('hidden');
-        console.log('📢 Ad hidden');
     }, (ad.duration || 10) * 1000);
     
     STATE.currentAdIndex = (STATE.currentAdIndex + 1) % STATE.ads.length;
