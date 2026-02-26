@@ -4,120 +4,175 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Signage Display</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <div class="scanlines"></div>
     <div class="container">
-        <!-- Left Sidebar -->
-        <div class="sidebar">
-            <!-- Logo Section -->
+
+        <!-- ===== LEFT SIDEBAR ===== -->
+        <aside class="sidebar">
+
+            <!-- Logo Row -->
             <div class="logo-section">
-                <img src="{{ url_for('static', filename='logos/logo1.png') }}" alt="Logo 1" class="logo" onerror="this.style.display='none'">
-                <img src="{{ url_for('static', filename='logos/logo2.png') }}" alt="Logo 2" class="logo" onerror="this.style.display='none'">
-            </div>
-            
-            <!-- Date Time Section -->
-            <div class="datetime-section">
-                <div class="time" id="current-time">12:00</div>
-                <div class="day" id="current-day">Senin</div>
-                <div class="date" id="current-date">Februari 25</div>
-            </div>
-            
-            <!-- Agenda List -->
-            <div class="agenda-list" id="agenda-list">
-                {% for agenda in agendas %}
-                <div class="agenda-item" data-id="{{ agenda['id'] }}" data-media-type="{{ agenda['media_type'] }}" data-media-path="{{ agenda['media_path'] }}">
-                    <div class="agenda-title">{{ agenda['title'] }}</div>
-                    <div class="agenda-description">{{ agenda['description'] }}</div>
-                    <div class="agenda-date">📅 {{ agenda['event_date'] }}</div>
+                <div class="logo-box">
+                    <img src="{{ url_for('static', filename='logos/logo1.png') }}" alt="Logo 1" class="logo" onerror="this.parentElement.classList.add('empty')">
+                    <span class="logo-fallback">LOGO 1</span>
                 </div>
-                {% endfor %}
+                <div class="logo-box">
+                    <img src="{{ url_for('static', filename='logos/logo2.png') }}" alt="Logo 2" class="logo" onerror="this.parentElement.classList.add('empty')">
+                    <span class="logo-fallback">LOGO 2</span>
+                </div>
             </div>
-        </div>
-        
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Media Display -->
-            <div class="media-display" id="media-display">
-                <div class="placeholder-text">Loading...</div>
+
+            <!-- Clock -->
+            <div class="clock-section">
+                <div class="time-display">
+                    <span id="current-time">12:00</span>
+                    <span class="time-colon-blink">:</span>
+                </div>
+                <div class="date-display">
+                    <span id="current-day">Senin</span>
+                    <span class="date-sep">·</span>
+                    <span id="current-date">Februari 25</span>
+                </div>
             </div>
-            
-            <!-- News + Barcode Section -->
-            <div class="bottom-section">
-                <div class="news-section">
-                    <div class="news-title">📰<br>Berita<br>Terkini</div>
-                    <div class="news-ticker-wrapper">
-                        <div class="news-ticker" id="news-ticker">
-                            {% for item in news %}
-                            <div class="news-item">{{ item['content'] }}</div>
-                            {% endfor %}
+
+            <!-- Divider -->
+            <div class="section-divider">
+                <span>AGENDA</span>
+            </div>
+
+            <!-- Agenda Scroll -->
+            <div class="agenda-scroll-container" id="agenda-list">
+                {% for agenda in agendas %}
+                <div class="agenda-card"
+                     data-id="{{ agenda['id'] }}"
+                     data-media-type="{{ agenda['media_type'] }}"
+                     data-media-path="{{ agenda['media_path'] }}">
+                    <div class="agenda-card-accent"></div>
+                    <div class="agenda-card-body">
+                        <div class="agenda-title">{{ agenda['title'] }}</div>
+                        <div class="agenda-desc">{{ agenda['description'] }}</div>
+                        <div class="agenda-date">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                                <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5z"/>
+                            </svg>
+                            {{ agenda['event_date'] }}
                         </div>
                     </div>
                 </div>
-                
-                <!-- Barcode Fixed -->
-                <div class="barcode-section">
-                    <img src="{{ url_for('static', filename='logos/barcode.png') }}" alt="QR Code" onerror="this.style.display='none'">
+                {% endfor %}
+            </div>
+
+            <!-- QR / Barcode -->
+            <div class="qr-section">
+                <div class="qr-frame">
+                    <img src="{{ url_for('static', filename='imgs/barcode.jpeg') }}" alt="QR Code" onerror="this.style.display='none'">
+                </div>
+                <p class="qr-label">Scan untuk Info Lengkap</p>
+            </div>
+
+        </aside>
+
+        <!-- ===== MAIN AREA ===== -->
+        <main class="main-content">
+
+            <!-- Media Display -->
+            <div class="media-display" id="media-display">
+                <div class="media-placeholder">
+                    <div class="pulse-ring"></div>
+                    <svg viewBox="0 0 48 48" width="52" height="52" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <rect x="4" y="8" width="40" height="28" rx="3"/>
+                        <path d="M16 44h16M24 36v8"/>
+                    </svg>
+                    <p>Memuat Media…</p>
+                </div>
+
+                <!-- Progress bar for image templates -->
+                <div class="media-progress" id="media-progress">
+                    <div class="media-progress-bar" id="media-progress-bar"></div>
+                </div>
+
+                <!-- Template info badge -->
+                <div class="template-badge" id="template-badge">
+                    <span id="template-badge-text">—</span>
                 </div>
             </div>
+
+            <!-- Bottom Bar -->
+            <div class="bottom-bar">
+
+                <!-- News Ticker -->
+                <div class="news-section">
+                    <div class="news-label">
+                        <svg viewBox="0 0 20 20" width="18" height="18" fill="currentColor">
+                            <path d="M3 4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4zm0 5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9zm0 5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-2z"/>
+                        </svg>
+                        <span>Berita<br>Terkini</span>
+                    </div>
+                    <div class="news-track-outer">
+                        <div class="news-track" id="news-ticker">
+                            {% for item in news %}
+                            <div class="news-chip">{{ item['content'] }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="news-arrow">›</div>
+                </div>
+
+            </main>
         </div>
-    </div>
-    
-    <!-- Advertisement Popup -->
-    <div class="ad-popup hidden" id="ad-popup">
-        <div class="ad-content" id="ad-content"></div>
-        <button class="ad-close" id="ad-close">✕</button>
-    </div>
-    
-    <!-- Floating Menu Button -->
-    <div class="floating-menu-button" id="menu-button">
-        <div class="menu-dots">
-            <span></span>
-            <span></span>
-            <span></span>
+
+        <!-- ===== AD POPUP ===== -->
+        <div class="ad-popup hidden" id="ad-popup">
+            <div class="ad-inner" id="ad-content"></div>
+            <button class="ad-close" id="ad-close">✕</button>
+            <div class="ad-countdown" id="ad-countdown"></div>
         </div>
-    </div>
-    
-    <!-- Floating Menu Apps -->
-    <div class="floating-menu" id="floating-menu">
-        <a href="{{ url_for('photobooth') }}" class="menu-app camera">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
-                <circle cx="12" cy="13" r="4"></circle>
-            </svg>
-            <span class="menu-app-label">Photobooth</span>
-        </a>
-        
-        <div class="menu-app gallery" onclick="window.location.href='/gallery'">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                <polyline points="21 15 16 10 5 21"></polyline>
-            </svg>
-            <span class="menu-app-label">Gallery</span>
-        </div>
-        
-        <div class="menu-app settings" onclick="alert('Settings - Use manage_data.py')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v6m0 6v6"></path>
-            </svg>
-            <span class="menu-app-label">Settings</span>
-        </div>
-        
-        <div class="menu-app admin" onclick="alert('Admin - Use manage_data.py')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                <circle cx="12" cy="7" r="4"></circle>
-            </svg>
-            <span class="menu-app-label">Admin</span>
-        </div>
-    </div>
-    
-    <!-- Menu Overlay -->
-    <div class="menu-overlay hidden" id="menu-overlay"></div>
-    
-    <script type="text/javascript">
+
+        <!-- ===== FLOATING MENU ===== -->
+        <button class="fab" id="menu-button" aria-label="Menu">
+            <span></span><span></span><span></span>
+        </button>
+
+        <nav class="fab-menu" id="floating-menu">
+            <a href="{{ url_for('photobooth') }}" class="fab-item cam">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                    <circle cx="12" cy="13" r="4"/>
+                </svg>
+                <span>Photobooth</span>
+            </a>
+            <div class="fab-item gal" onclick="window.location.href='/gallery'">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <span>Gallery</span>
+            </div>
+            <div class="fab-item cfg" onclick="alert('Settings')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                <span>Settings</span>
+            </div>
+            <div class="fab-item adm" onclick="alert('Admin')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                </svg>
+                <span>Admin</span>
+            </div>
+        </nav>
+
+        <div class="fab-overlay hidden" id="menu-overlay"></div>
+
+    <script>
         window.SIGNAGE_DATA = {
             templates: {{ templates|tojson|safe }},
             advertisements: {{ ads|tojson|safe }},

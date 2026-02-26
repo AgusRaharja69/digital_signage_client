@@ -1,28 +1,48 @@
+/* ============================================================
+   DIGITAL SIGNAGE — script.js
+   Smart video duration: rotates on 'ended', not fixed timer.
+   Images use configured duration with animated progress bar.
+   ============================================================ */
+
+'use strict';
+
 const STATE = {
     templates: window.SIGNAGE_DATA?.templates || [],
-    ads: window.SIGNAGE_DATA?.advertisements || [],
-    agendas: window.SIGNAGE_DATA?.agendas || [],
+    ads:       window.SIGNAGE_DATA?.advertisements || [],
+    agendas:   window.SIGNAGE_DATA?.agendas || [],
+
     currentTemplateIndex: 0,
     currentAdIndex: 0,
-    templateTimer: null,
-    adTimer: null,
+
+    templateTimer:  null,   // for image auto-advance
+    adTimer:        null,
     adTriggerTimer: null,
+    progressTimer:  null,
+
+    // prevent double-advance when video ends near scheduled timer
+    advancing: false,
 };
 
+/* ============================================================
+   INIT
+   ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('🚀 Digital Signage initialized');
-    console.log('Templates:', STATE.templates);
-    console.log('Ads:', STATE.ads);
-    
+    console.log('🚀 Digital Signage v2 initialized');
+    console.log('Templates:', STATE.templates.length);
+    console.log('Ads:', STATE.ads.length);
+
     initDateTime();
-    initAgendaAutoScroll();
-    initNewsAutoScroll();
+    initAgendaScroll();
+    initNewsScroll();
     initAgendaClickHandlers();
     initFloatingMenu();
-    initAdvertisementHandlers();
+    initAdHandlers();
     startTemplateRotation();
 });
 
+/* ============================================================
+   DATE / TIME
+   ============================================================ */
 function initDateTime() {
     updateDateTime();
     setInterval(updateDateTime, 1000);
@@ -30,212 +50,405 @@ function initDateTime() {
 
 function updateDateTime() {
     const now = new Date();
-    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
-                    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
-    
-    document.getElementById('current-time').textContent = 
-        now.getHours().toString().padStart(2, '0') + ':' + 
-        now.getMinutes().toString().padStart(2, '0');
-    
-    document.getElementById('current-day').textContent = days[now.getDay()];
-    document.getElementById('current-date').textContent = 
-        months[now.getMonth()] + ' ' + now.getDate().toString().padStart(2, '0');
+    const days   = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+    const months = ['Januari','Februari','Maret','April','Mei','Juni',
+                    'Juli','Agustus','September','Oktober','November','Desember'];
+
+    const h = String(now.getHours()).padStart(2,'0');
+    const m = String(now.getMinutes()).padStart(2,'0');
+    // blinking colon
+    const colon = now.getSeconds() % 2 === 0 ? ':' : '<span style="opacity:.2">:</span>';
+
+    const timeEl = document.getElementById('current-time');
+    if (timeEl) timeEl.innerHTML = `${h}${colon}${m}`;
+
+    const dayEl  = document.getElementById('current-day');
+    const dateEl = document.getElementById('current-date');
+    if (dayEl)  dayEl.textContent  = days[now.getDay()];
+    if (dateEl) dateEl.textContent = months[now.getMonth()] + ' ' + String(now.getDate()).padStart(2,'0');
 }
 
-function initAgendaAutoScroll() {
-    const agendaList = document.getElementById('agenda-list');
-    const items = agendaList.querySelectorAll('.agenda-item');
-    
-    if (items.length > 3) {
-        items.forEach(item => {
-            const clone = item.cloneNode(true);
-            agendaList.appendChild(clone);
+/* ============================================================
+   AGENDA AUTO SCROLL
+   ============================================================ */
+function initAgendaScroll() {
+    const container = document.getElementById('agenda-list');
+    const cards     = Array.from(container.querySelectorAll('.agenda-card'));
+
+    if (cards.length === 0) return;
+
+    // Create inner wrapper
+    const inner = document.createElement('div');
+    inner.id = 'agenda-list-inner';
+
+    // Move existing cards in
+    cards.forEach(c => inner.appendChild(c));
+
+    // Duplicate if needed for infinite scroll
+    if (cards.length >= 2) {
+        cards.forEach(c => {
+            const clone = c.cloneNode(true);
+            clone.classList.add('clone');
+            inner.appendChild(clone);
         });
-        
-        const wrapper = document.createElement('div');
-        wrapper.className = 'agenda-list-wrapper';
-        while (agendaList.firstChild) {
-            wrapper.appendChild(agendaList.firstChild);
-        }
-        agendaList.appendChild(wrapper);
-        
-        initAgendaClickHandlers();
     }
-}
 
-function initNewsAutoScroll() {
-    const newsTicker = document.getElementById('news-ticker');
-    const items = newsTicker.querySelectorAll('.news-item');
-    
-    items.forEach(item => {
-        const clone = item.cloneNode(true);
-        newsTicker.appendChild(clone);
+    container.appendChild(inner);
+    initAgendaClickHandlers();
+
+    // Measure one-set height then animate
+    requestAnimationFrame(() => {
+        const setHeight = cards.reduce((sum, c) => sum + c.offsetHeight + 9, 0);
+        if (setHeight === 0) return;
+
+        let pos = 0;
+        const speed = 18; // px per second
+        let last = null;
+        let paused = false;
+
+        container.addEventListener('mouseenter', () => paused = true);
+        container.addEventListener('mouseleave',  () => paused = false);
+
+        function step(ts) {
+            if (!last) last = ts;
+            const dt = (ts - last) / 1000;
+            last = ts;
+
+            if (!paused) {
+                pos += speed * dt;
+                if (pos >= setHeight) pos -= setHeight;
+                inner.style.transform = `translateY(-${pos}px)`;
+            }
+            requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
     });
 }
 
+/* ============================================================
+   NEWS TICKER DUPLICATE
+   ============================================================ */
+function initNewsScroll() {
+    const track = document.getElementById('news-ticker');
+    if (!track) return;
+    const chips = Array.from(track.querySelectorAll('.news-chip'));
+    if (chips.length === 0) return;
+
+    // Duplicate for seamless loop
+    chips.forEach(chip => {
+        const clone = chip.cloneNode(true);
+        track.appendChild(clone);
+    });
+}
+
+/* ============================================================
+   AGENDA CLICK — manual media override
+   ============================================================ */
 function initAgendaClickHandlers() {
-    document.querySelectorAll('.agenda-item').forEach(item => {
-        item.addEventListener('click', () => {
-            document.querySelectorAll('.agenda-item').forEach(a => a.classList.remove('active'));
-            item.classList.add('active');
-            
-            const mediaType = item.dataset.mediaType;
-            const mediaPath = item.dataset.mediaPath;
-            displayAgendaMedia(mediaType, mediaPath);
+    document.querySelectorAll('.agenda-card:not(.clone)').forEach(card => {
+        card.addEventListener('click', () => {
+            document.querySelectorAll('.agenda-card').forEach(c => c.classList.remove('active'));
+            // activate all copies (original + clone)
+            const id = card.dataset.id;
+            document.querySelectorAll(`.agenda-card[data-id="${id}"]`).forEach(c => c.classList.add('active'));
+
+            // Pause rotation, show agenda media
+            clearTimeout(STATE.templateTimer);
+            clearTimeout(STATE.adTriggerTimer);
+            stopProgress();
+
+            displayManualMedia(card.dataset.mediaType, card.dataset.mediaPath);
         });
     });
 }
 
-function displayAgendaMedia(type, path) {
-    console.log('📺 Display agenda:', type, path);
-    
+function displayManualMedia(type, path) {
     const display = document.getElementById('media-display');
-    display.innerHTML = '';
-    
-    if (type === 'photo') {
-        const img = document.createElement('img');
-        img.src = '/' + path;
-        img.className = 'media-content image';
-        img.onerror = function() {
-            console.error('Failed to load:', path);
-            this.src = '/static/uploads/placeholder.jpg';
-        };
-        img.onload = function() {
-            console.log('✅ Image loaded successfully');
-        };
+    clearDisplay(display);
+
+    if (type === 'photo' || type === 'image') {
+        const img = buildImg('/' + path);
         display.appendChild(img);
     } else if (type === 'video') {
-        const video = document.createElement('video');
-        video.src = '/' + path;
-        video.className = 'media-content video';
-        video.autoplay = true;
-        video.muted = true;
-        video.loop = true;
-        display.appendChild(video);
+        const vid = buildVideo('/' + path, false); // not looping for manual
+        display.appendChild(vid);
     }
+    hideBadge();
 }
 
+/* ============================================================
+   TEMPLATE ROTATION
+   ============================================================ */
 function startTemplateRotation() {
     if (STATE.templates.length === 0) {
-        console.warn('⚠️ No templates available');
+        console.warn('⚠️  No templates');
         return;
     }
     displayTemplate(0);
 }
 
 function displayTemplate(index) {
+    if (STATE.advancing) return;
     if (index >= STATE.templates.length) index = 0;
-    
-    const template = STATE.templates[index];
+
     STATE.currentTemplateIndex = index;
-    
-    console.log(`📺 Template ${index + 1}/${STATE.templates.length}: ${template.template_name}`);
-    
+    STATE.advancing = false;
+
+    const tpl     = STATE.templates[index];
     const display = document.getElementById('media-display');
-    display.innerHTML = '';
-    
-    if (template.template_type === 'image') {
-        const img = document.createElement('img');
-        img.src = '/' + template.file_path;
-        img.className = 'media-content image';
-        img.onload = () => console.log('✅ Template image loaded');
-        img.onerror = () => console.error('❌ Failed to load template image');
-        display.appendChild(img);
-    } else if (template.template_type === 'video') {
-        const video = document.createElement('video');
-        video.src = '/' + template.file_path;
-        video.className = 'media-content video';
-        video.autoplay = true;
-        video.muted = true;
-        video.loop = true;
-        display.appendChild(video);
-    }
-    
-    scheduleAdvertisement(template.duration);
-    
+
+    console.log(`📺 Template ${index + 1}/${STATE.templates.length}: "${tpl.template_name}" [${tpl.template_type}]`);
+
+    clearDisplay(display);
+    stopProgress();
     clearTimeout(STATE.templateTimer);
+
+    showBadge(tpl.template_name);
+
+    if (tpl.template_type === 'image') {
+        showImageTemplate(display, tpl, index);
+    } else if (tpl.template_type === 'video') {
+        showVideoTemplate(display, tpl, index);
+    } else {
+        // unknown type — advance after fallback duration
+        scheduleNextTemplate(index, tpl.duration || 10);
+    }
+
+    scheduleAd(tpl.template_type === 'video' ? null : tpl.duration);
+}
+
+/* --- Image Template --- */
+function showImageTemplate(display, tpl, index) {
+    const img = buildImg('/' + tpl.file_path);
+    display.appendChild(img);
+
+    const dur = tpl.duration || 10;
+    startProgress(dur);
+
     STATE.templateTimer = setTimeout(() => {
-        displayTemplate(index + 1);
-    }, template.duration * 1000);
+        advanceTemplate(index);
+    }, dur * 1000);
 }
 
-function scheduleAdvertisement(templateDuration) {
+/* --- Video Template --- */
+function showVideoTemplate(display, tpl, index) {
+    const vid = buildVideo('/' + tpl.file_path, false);
+
+    // When video ends naturally → advance
+    vid.addEventListener('ended', () => {
+        console.log('🎬 Video ended, advancing');
+        advanceTemplate(index);
+    });
+
+    // Error fallback
+    vid.addEventListener('error', () => {
+        console.error('❌ Video error, skipping in 3s');
+        setTimeout(() => advanceTemplate(index), 3000);
+    });
+
+    display.appendChild(vid);
+    // No timer — duration comes from video itself
+}
+
+/* --- Advance helper (debounced) --- */
+function advanceTemplate(fromIndex) {
+    if (STATE.advancing) return;
+    if (STATE.currentTemplateIndex !== fromIndex) return; // stale call
+    STATE.advancing = true;
+
+    clearTimeout(STATE.templateTimer);
+    stopProgress();
+
+    setTimeout(() => {
+        STATE.advancing = false;
+        displayTemplate(fromIndex + 1);
+    }, 50);
+}
+
+/* ============================================================
+   MEDIA ELEMENT BUILDERS
+   ============================================================ */
+function buildImg(src) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = 'media-el';
+    img.onerror = () => { img.src = '/static/uploads/placeholder.jpg'; };
+    return img;
+}
+
+function buildVideo(src, loop = true) {
+    const vid = document.createElement('video');
+    vid.src  = src;
+    vid.className = 'media-el';
+    vid.autoplay  = true;
+    vid.muted     = true;
+    vid.loop      = loop;
+    vid.playsInline = true;
+    return vid;
+}
+
+/* ============================================================
+   CLEAR DISPLAY
+   ============================================================ */
+function clearDisplay(display) {
+    // Remove all media elements (keep progress bar and badge)
+    Array.from(display.children).forEach(child => {
+        if (child.classList.contains('media-el') || child.classList.contains('media-placeholder')) {
+            child.remove();
+        }
+    });
+
+    // If display is now empty of media, show nothing (progress/badge stay)
+}
+
+/* ============================================================
+   PROGRESS BAR (images only)
+   ============================================================ */
+function startProgress(durationSec) {
+    const wrap = document.getElementById('media-progress');
+    const bar  = document.getElementById('media-progress-bar');
+    if (!wrap || !bar) return;
+
+    bar.style.transition = 'none';
+    bar.style.width = '0%';
+    wrap.classList.add('visible');
+
+    clearTimeout(STATE.progressTimer);
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            bar.style.transition = `width ${durationSec}s linear`;
+            bar.style.width = '100%';
+        });
+    });
+}
+
+function stopProgress() {
+    const wrap = document.getElementById('media-progress');
+    const bar  = document.getElementById('media-progress-bar');
+    if (!wrap || !bar) return;
+
+    wrap.classList.remove('visible');
+    bar.style.transition = 'none';
+    bar.style.width = '0%';
+}
+
+/* ============================================================
+   TEMPLATE BADGE
+   ============================================================ */
+function showBadge(name) {
+    const badge = document.getElementById('template-badge');
+    const text  = document.getElementById('template-badge-text');
+    if (!badge || !text) return;
+
+    text.textContent = name || '—';
+    badge.classList.add('show');
+
+    clearTimeout(STATE._badgeTimer);
+    STATE._badgeTimer = setTimeout(() => badge.classList.remove('show'), 3500);
+}
+
+function hideBadge() {
+    document.getElementById('template-badge')?.classList.remove('show');
+}
+
+/* ============================================================
+   ADVERTISEMENT
+   ============================================================ */
+function scheduleAd(templateDurationSec) {
     clearTimeout(STATE.adTriggerTimer);
-    
-    if (STATE.ads.length === 0) {
-        console.log('⚠️ No ads');
-        return;
-    }
-    
+    if (STATE.ads.length === 0) return;
+
     const ad = STATE.ads[STATE.currentAdIndex];
-    const showAt = (templateDuration - (ad.trigger_time || 10)) * 1000;
-    
-    console.log(`📢 Ad in ${showAt/1000}s`);
-    
+
+    let delay;
+    if (templateDurationSec == null) {
+        // Video — show ad after trigger_time seconds
+        delay = (ad.trigger_time || 10) * 1000;
+    } else {
+        // Image — show ad before template ends
+        const showAt = templateDurationSec - (ad.trigger_time || 8);
+        delay = Math.max(0, showAt) * 1000;
+    }
+
+    console.log(`📢 Ad "${ad.ad_name}" scheduled in ${(delay/1000).toFixed(1)}s`);
+
     STATE.adTriggerTimer = setTimeout(() => {
-        showAdvertisement(ad);
-    }, Math.max(0, showAt));
+        showAd(ad);
+    }, delay);
 }
 
-function showAdvertisement(ad) {
-    console.log(`📢 AD: ${ad.ad_name}`);
-    
-    const popup = document.getElementById('ad-popup');
+function showAd(ad) {
+    console.log(`📢 Showing AD: ${ad.ad_name}`);
+    const popup   = document.getElementById('ad-popup');
     const content = document.getElementById('ad-content');
-    
+    const cdEl    = document.getElementById('ad-countdown');
+
     content.innerHTML = '';
-    
+
     if (ad.ad_type === 'image') {
-        const img = document.createElement('img');
-        img.src = '/' + ad.file_path;
-        content.appendChild(img);
+        content.appendChild(buildImg('/' + ad.file_path));
     } else if (ad.ad_type === 'video') {
-        const video = document.createElement('video');
-        video.src = '/' + ad.file_path;
-        video.autoplay = true;
-        video.muted = true;
-        content.appendChild(video);
+        content.appendChild(buildVideo('/' + ad.file_path, false));
     }
-    
+
     popup.classList.remove('hidden');
-    
+
+    const dur = ad.duration || 10;
+    let remaining = dur;
+
+    if (cdEl) cdEl.textContent = `${remaining}s`;
+
+    clearInterval(STATE._adCdInterval);
+    STATE._adCdInterval = setInterval(() => {
+        remaining--;
+        if (cdEl) cdEl.textContent = `${remaining}s`;
+        if (remaining <= 0) clearInterval(STATE._adCdInterval);
+    }, 1000);
+
     clearTimeout(STATE.adTimer);
     STATE.adTimer = setTimeout(() => {
         popup.classList.add('hidden');
-    }, (ad.duration || 10) * 1000);
-    
+        clearInterval(STATE._adCdInterval);
+    }, dur * 1000);
+
     STATE.currentAdIndex = (STATE.currentAdIndex + 1) % STATE.ads.length;
 }
 
-function initAdvertisementHandlers() {
-    const closeBtn = document.getElementById('ad-close');
-    if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
-            document.getElementById('ad-popup').classList.add('hidden');
-            clearTimeout(STATE.adTimer);
-        });
-    }
+function initAdHandlers() {
+    document.getElementById('ad-close')?.addEventListener('click', () => {
+        document.getElementById('ad-popup').classList.add('hidden');
+        clearTimeout(STATE.adTimer);
+        clearInterval(STATE._adCdInterval);
+    });
 }
 
+/* ============================================================
+   FLOATING MENU
+   ============================================================ */
 function initFloatingMenu() {
-    const menuBtn = document.getElementById('menu-button');
-    const menu = document.getElementById('floating-menu');
+    const btn     = document.getElementById('menu-button');
+    const menu    = document.getElementById('floating-menu');
     const overlay = document.getElementById('menu-overlay');
-    
-    menuBtn.addEventListener('click', () => {
+
+    btn?.addEventListener('click', () => {
         menu.classList.toggle('active');
         overlay.classList.toggle('active');
     });
-    
-    overlay.addEventListener('click', () => {
+
+    overlay?.addEventListener('click', () => {
         menu.classList.remove('active');
         overlay.classList.remove('active');
     });
 }
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'n') displayTemplate(STATE.currentTemplateIndex + 1);
-    if (e.key === 'a' && STATE.ads.length > 0) showAdvertisement(STATE.ads[STATE.currentAdIndex]);
-    if (e.key === 'r') location.reload();
+/* ============================================================
+   KEYBOARD SHORTCUTS
+   ============================================================ */
+document.addEventListener('keydown', e => {
+    switch(e.key) {
+        case 'n': advanceTemplate(STATE.currentTemplateIndex); break;
+        case 'a': if (STATE.ads.length) showAd(STATE.ads[STATE.currentAdIndex]); break;
+        case 'r': location.reload(); break;
+    }
 });
