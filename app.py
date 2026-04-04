@@ -16,7 +16,7 @@ import json
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, 'templates')
 STATIC_DIR   = os.path.join(BASE_DIR, 'static')
-DB_PATH      = os.path.join(BASE_DIR, 'db', 'signage.db')
+DB_PATH      = os.path.join(BASE_DIR, 'db', 'photostation.db')
 
 # Photobooth paths
 PB_DIR          = os.path.join(BASE_DIR, 'apps', 'photobooth')
@@ -88,23 +88,80 @@ def set_config(key, value):
         return False
 
 # ═════════════════════════════════════════════════════════════════════════════
+# SCHEDULING HELPER
+# ═════════════════════════════════════════════════════════════════════════════
+
+def is_display_on():
+    """Return True if the display should currently be ON based on config."""
+    from datetime import date as _date
+    now       = datetime.now()
+    time_on   = get_config('time_on',  '00:00')
+    time_off  = get_config('time_off', '23:59')
+    date_off  = get_config('date_off', '')
+
+    # Check date_off list
+    today_str = now.strftime('%Y-%m-%d')
+    off_dates = [d.strip() for d in date_off.split(',') if d.strip()]
+    if today_str in off_dates:
+        return False
+
+    # Check time range
+    try:
+        h_on,  m_on  = [int(x) for x in time_on.split(':')]
+        h_off, m_off = [int(x) for x in time_off.split(':')]
+        minutes_now  = now.hour * 60 + now.minute
+        minutes_on   = h_on  * 60 + m_on
+        minutes_off  = h_off * 60 + m_off
+        return minutes_on <= minutes_now < minutes_off
+    except Exception:
+        return True   # fallback: always on if config malformed
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # MAIN SIGNAGE ROUTES
 # ═════════════════════════════════════════════════════════════════════════════
 
 @app.route('/')
 def index():
     try:
+        # ── Scheduling check ──────────────────────────────────────────────
+        if not is_display_on():
+            time_on = get_config('time_on', '07:00')
+            return render_template('standby.html', time_on=time_on), 200
+
         conn = get_db()
-        templates = [dict(r) for r in conn.execute('SELECT * FROM templates WHERE is_active=1 ORDER BY display_order').fetchall()]
-        ads       = [dict(r) for r in conn.execute('SELECT * FROM advertisements WHERE is_active=1 ORDER BY display_order').fetchall()]
-        agendas   = [dict(r) for r in conn.execute('SELECT * FROM agendas WHERE is_active=1 ORDER BY position').fetchall()]
-        news      = [dict(r) for r in conn.execute('SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC').fetchall()]
-        device_name = get_config('device_name', 'Digital Signage')
+
+        templates = [dict(r) for r in conn.execute(
+            'SELECT * FROM templates WHERE is_active=1 ORDER BY display_order').fetchall()]
+        ads       = [dict(r) for r in conn.execute(
+            'SELECT * FROM advertisements WHERE is_active=1 ORDER BY display_order').fetchall()]
+        agendas   = [dict(r) for r in conn.execute(
+            'SELECT * FROM agendas WHERE is_active=1 ORDER BY position').fetchall()]
+        news      = [dict(r) for r in conn.execute(
+            'SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC').fetchall()]
+
+        device_name      = get_config('device_name',     'Digital Signage')
+        main_color       = get_config('main_color',      '#4ecca3')
+        secondary_color  = get_config('secondary_color', '#00b4d8')
+        bg_color         = get_config('bg_color',        '#060a12')
+        logo_univ        = get_config('logo_univ',       'static/imgs/logo1.png')
+        logo_sekolah     = get_config('logo_sekolah',    'static/imgs/logo2.png')
+        barcode_boot     = get_config('barcode_boot',    'static/imgs/barcode.jpeg')
+
         conn.close()
+
         return render_template('index.html',
-                               templates=templates, ads=ads,
-                               agendas=agendas, news=news,
+                               templates=templates,
+                               ads=ads,
+                               agendas=agendas,
+                               news=news,
                                device_name=device_name,
+                               main_color=main_color,
+                               secondary_color=secondary_color,
+                               bg_color=bg_color,
+                               logo_univ=logo_univ,
+                               logo_sekolah=logo_sekolah,
+                               barcode_boot=barcode_boot,
                                current_time=datetime.now())
     except Exception as e:
         import traceback; traceback.print_exc()

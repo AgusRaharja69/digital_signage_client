@@ -14,15 +14,19 @@ const STATE = {
     ads:       window.SIGNAGE_DATA?.advertisements || [],
     agendas:   window.SIGNAGE_DATA?.agendas || [],
 
-    currentTemplateIndex: 0,
-    currentAdIndex: 0,
+    // ⑤ Combined play queue: semua templates dulu, lalu ads, lalu loop
+    queue:                [],
+    currentIndex:         0,
+
+    // Legacy ad popup (dinonaktifkan, tapi kode tetap ada)
+    currentAdIndex:       0,
 
     templateTimer:  null,
     adTimer:        null,
     adTriggerTimer: null,
     _badgeTimer:    null,
     _adCdInterval:  null,
-    _agendaRAF:     null,   // cancelAnimationFrame handle
+    _agendaRAF:     null,
 
     advancing: false,
 };
@@ -124,14 +128,38 @@ function initAgendaScroll() {
 }
 
 /* ============================================================
-   NEWS TICKER — duplicate chips for seamless loop
+   NEWS TICKER
+   Kecepatan konstan 80px/detik tidak peduli jumlah berita.
+   Durasi dihitung dari lebar total track setelah duplikasi.
    ============================================================ */
 function initNewsScroll() {
     const track = document.getElementById('news-ticker');
     if (!track) return;
     const chips = Array.from(track.querySelectorAll('.news-chip'));
     if (chips.length === 0) return;
+
+    // Duplikasi chip untuk seamless loop
     chips.forEach(chip => track.appendChild(chip.cloneNode(true)));
+
+    // Hitung durasi setelah render selesai
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            // Lebar satu set chip (setengah dari total track karena sudah diduplikasi)
+            const halfWidth = track.scrollWidth / 2;
+
+            // Kecepatan konstan 80px/detik → durasi menyesuaikan jumlah berita
+            const SPEED_PX_PER_SEC = 80;
+            const duration = halfWidth / SPEED_PX_PER_SEC;
+
+            // Set CSS variable untuk @keyframes translateX endpoint
+            track.style.setProperty('--news-scroll-width', `-${halfWidth}px`);
+
+            // Apply animation dengan durasi yang sudah dihitung
+            track.style.animation = `scrollNews ${duration.toFixed(2)}s linear infinite`;
+
+            console.log(`News ticker: ${chips.length} items, width=${halfWidth}px, duration=${duration.toFixed(1)}s`);
+        });
+    });
 }
 
 /* ============================================================
@@ -167,58 +195,82 @@ function displayManualMedia(type, path) {
 
 /* ============================================================
    TEMPLATE ROTATION
+   Queue: [template1, template2, ..., ad1, ad2, ...] — lalu loop
+   Ads masuk di main content (bukan popup) setelah semua template selesai
    ============================================================ */
 function startTemplateRotation() {
-    if (STATE.templates.length === 0) {
-        console.warn('No templates available');
+    if (STATE.templates.length === 0 && STATE.ads.length === 0) {
+        console.warn('No templates or ads available');
         return;
     }
-    displayTemplate(0);
+
+    // ⑤ Gabungkan templates + ads jadi satu antrian
+    // Template pakai field template_name, template_type, file_path, duration
+    // Ad dikonversi ke format yang sama agar displayTemplate bisa handle
+    const adItems = STATE.ads.map(ad => ({
+        template_name: ad.ad_name,
+        template_type: ad.ad_type,   // 'image' atau 'video'
+        file_path:     ad.file_path,
+        duration:      ad.duration || 10,
+        _is_ad:        true,         // flag untuk badge label
+    }));
+
+    STATE.queue = [...STATE.templates, ...adItems];
+    STATE.currentIndex = 0;
+
+    console.log(`Queue: ${STATE.templates.length} template + ${adItems.length} ads = ${STATE.queue.length} total`);
+    displayFromQueue(0);
 }
 
-function displayTemplate(index) {
+function displayFromQueue(index) {
     if (STATE.advancing) return;
-    if (index >= STATE.templates.length) index = 0;
+    if (STATE.queue.length === 0) return;
 
-    STATE.currentTemplateIndex = index;
+    // Loop kembali ke awal
+    if (index >= STATE.queue.length) index = 0;
+
+    STATE.currentIndex   = index;
+    STATE.currentTemplateIndex = index; // compat dengan advanceTemplate
     STATE.advancing = false;
 
-    const tpl     = STATE.templates[index];
+    const item    = STATE.queue[index];
     const display = document.getElementById('media-display');
 
-    console.log(`Template ${index + 1}/${STATE.templates.length}: "${tpl.template_name}" [${tpl.template_type}]`);
+    console.log(`[${index + 1}/${STATE.queue.length}] "${item.template_name}" [${item.template_type}]${item._is_ad ? ' 📢 AD' : ''}`);
 
-    // CRITICAL: destroy previous media elements properly
     safeCleanDisplay(display);
     stopProgress();
     clearTimeout(STATE.templateTimer);
 
-    showBadge(tpl.template_name);
+    // Badge: iklan ditandai "IKLAN"
+    showBadge(item._is_ad ? `📢 ${item.template_name}` : item.template_name);
 
-    if (tpl.template_type === 'image') {
-        showImageTemplate(display, tpl, index);
-    } else if (tpl.template_type === 'video') {
-        showVideoTemplate(display, tpl, index);
+    if (item.template_type === 'image') {
+        showImageTemplate(display, item, index);
+    } else if (item.template_type === 'video') {
+        showVideoTemplate(display, item, index);
     } else {
-        // unknown — fallback after 10s
         STATE.templateTimer = setTimeout(() => advanceTemplate(index), 10000);
     }
-
-    scheduleAd(tpl.template_type === 'video' ? null : tpl.duration);
 }
 
-function showImageTemplate(display, tpl, index) {
-    const img = buildImg('/' + tpl.file_path);
+function displayTemplate(index) {
+    // Alias untuk kompatibilitas dengan kode lama (advanceTemplate, keyboard shortcut)
+    displayFromQueue(index);
+}
+
+function showImageTemplate(display, item, index) {
+    const img = buildImg('/' + item.file_path);
     display.appendChild(img);
 
-    const dur = tpl.duration || 10;
+    const dur = item.duration || 10;
     startProgress(dur);
 
     STATE.templateTimer = setTimeout(() => advanceTemplate(index), dur * 1000);
 }
 
-function showVideoTemplate(display, tpl, index) {
-    const vid = buildVideo('/' + tpl.file_path, false);
+function showVideoTemplate(display, item, index) {
+    const vid = buildVideo('/' + item.file_path, false);
 
     vid.addEventListener('ended', () => {
         console.log('Video ended, advancing');
@@ -236,7 +288,7 @@ function showVideoTemplate(display, tpl, index) {
 
 function advanceTemplate(fromIndex) {
     if (STATE.advancing) return;
-    if (STATE.currentTemplateIndex !== fromIndex) return;
+    if (STATE.currentIndex !== fromIndex) return;
     STATE.advancing = true;
 
     clearTimeout(STATE.templateTimer);
@@ -244,7 +296,7 @@ function advanceTemplate(fromIndex) {
 
     setTimeout(() => {
         STATE.advancing = false;
-        displayTemplate(fromIndex + 1);
+        displayFromQueue(fromIndex + 1);
     }, 80);
 }
 
@@ -343,8 +395,30 @@ function hideBadge() {
 }
 
 /* ============================================================
-   ADVERTISEMENT
+   ADVERTISEMENT POPUP
+   ⚠ DINONAKTIFKAN — iklan sekarang masuk di antrian main content (queue).
+   Kode tetap ada untuk re-aktivasi nanti jika dibutuhkan.
    ============================================================ */
+function scheduleAd(/* templateDurationSec */) {
+    // Ad popup disabled — ads are now in the main content queue
+}
+
+function showAd(ad) {
+    // Ad popup disabled
+    console.log(`[AD POPUP DISABLED] ${ad?.ad_name}`);
+}
+
+function closeAd() {
+    // Ad popup disabled
+}
+
+function initAdHandlers() {
+    // Ad popup disabled — close button no longer exists in DOM
+    // document.getElementById('ad-close')?.addEventListener('click', closeAd);
+}
+
+/*
+// ── ORIGINAL POPUP CODE (uncomment to re-enable) ───────────────────────────
 function scheduleAd(templateDurationSec) {
     clearTimeout(STATE.adTriggerTimer);
     if (STATE.ads.length === 0) return;
@@ -363,12 +437,10 @@ function scheduleAd(templateDurationSec) {
 }
 
 function showAd(ad) {
-    console.log(`AD: ${ad.ad_name}`);
     const popup   = document.getElementById('ad-popup');
     const content = document.getElementById('ad-content');
     const cdEl    = document.getElementById('ad-countdown');
 
-    // Release previous ad video
     const oldVid = content.querySelector('video');
     if (oldVid) {
         try { oldVid.pause(); oldVid.removeAttribute('src'); oldVid.load(); } catch(e){}
@@ -404,7 +476,6 @@ function closeAd() {
     const popup   = document.getElementById('ad-popup');
     const content = document.getElementById('ad-content');
 
-    // Release video decoder
     const vid = content.querySelector('video');
     if (vid) {
         try { vid.pause(); vid.removeAttribute('src'); vid.load(); } catch(e){}
@@ -418,6 +489,8 @@ function closeAd() {
 function initAdHandlers() {
     document.getElementById('ad-close')?.addEventListener('click', closeAd);
 }
+// ────────────────────────────────────────────────────────────────────────────
+*/
 
 /* ============================================================
    FLOATING MENU

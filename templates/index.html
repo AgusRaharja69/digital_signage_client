@@ -7,6 +7,17 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- ① DYNAMIC COLORS — dari tabel config (main_color, secondary_color, bg_color) -->
+    <style>
+        :root {
+            --accent:  {{ main_color }};
+            --accent2: {{ secondary_color }};
+            --bg-main: {{ bg_color }};
+            --bg-deep: {{ bg_color }};
+            --bg-side: color-mix(in srgb, {{ bg_color }} 95%, white 5%);
+        }
+    </style>
 </head>
 <body>
     <div class="scanlines"></div>
@@ -18,12 +29,12 @@
             <!-- Logo Row -->
             <div class="logo-section">
                 <div class="logo-box">
-                    <img src="{{ url_for('static', filename='logos/logo1.png') }}" alt="Logo 1" class="logo" onerror="this.parentElement.classList.add('empty')">
-                    <span class="logo-fallback">LOGO 1</span>
+                    <img src="/{{ logo_univ }}" alt="Logo Universitas" class="logo" onerror="this.parentElement.classList.add('empty')">
+                    <span class="logo-fallback">LOGO UNIV</span>
                 </div>
                 <div class="logo-box">
-                    <img src="{{ url_for('static', filename='logos/logo2.png') }}" alt="Logo 2" class="logo" onerror="this.parentElement.classList.add('empty')">
-                    <span class="logo-fallback">LOGO 2</span>
+                    <img src="/{{ logo_sekolah }}" alt="Logo Sekolah" class="logo" onerror="this.parentElement.classList.add('empty')">
+                    <span class="logo-fallback">LOGO SEKOLAH</span>
                 </div>
             </div>
 
@@ -61,6 +72,14 @@
                                 <path d="M3.5 0a.5.5 0 0 1 .5.5V1h8V.5a.5.5 0 0 1 1 0V1h1a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2h1V.5a.5.5 0 0 1 .5-.5z"/>
                             </svg>
                             {{ agenda['event_date'] }}
+                            {% if agenda['event_time'] %}
+                            <span class="agenda-time-sep">·</span>
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor">
+                                <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                                <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                            </svg>
+                            {{ agenda['event_time'] }}
+                            {% endif %}
                         </div>
                     </div>
                 </div>
@@ -70,7 +89,7 @@
             <!-- QR / Barcode -->
             <div class="qr-section">
                 <div class="qr-frame">
-                    <img src="{{ url_for('static', filename='imgs/barcode.jpeg') }}" alt="QR Code" onerror="this.style.display='none'">
+                    <img src="/{{ barcode_boot }}" alt="QR Code / Barcode" onerror="this.style.display='none'">
                 </div>
                 <p class="qr-label">Scan untuk Info Lengkap</p>
             </div>
@@ -102,9 +121,8 @@
                 </div>
             </div>
 
-            <!-- Bottom Bar -->
+            <!-- Bottom Bar (news ticker) -->
             <div class="bottom-bar">
-
                 <!-- News Ticker -->
                 <div class="news-section">
                     <div class="news-label">
@@ -122,16 +140,29 @@
                     </div>
                     <div class="news-arrow">›</div>
                 </div>
+            </div>
 
-            </main>
-        </div>
+            <!-- ③ FOOTER DEVELOPER INFO -->
+            <footer class="dev-footer">
+                <span>Copyright © 2026 Universitas Warmadewa</span>
+                <span class="footer-sep">·</span>
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor" style="opacity:.6">
+                    <path d="M3.654 1.328a.678.678 0 0 0-1.015-.063L1.605 2.3c-.483.484-.661 1.169-.45 1.77a17.6 17.6 0 0 0 4.168 6.608 17.6 17.6 0 0 0 6.608 4.168c.601.211 1.286.033 1.77-.45l1.034-1.034a.678.678 0 0 0-.063-1.015l-2.307-1.794a.678.678 0 0 0-.58-.122l-2.19.547a1.745 1.745 0 0 1-1.657-.459L5.482 8.062a1.745 1.745 0 0 1-.46-1.657l.548-2.19a.678.678 0 0 0-.122-.58L3.654 1.328z"/>
+                </svg>
+                <span>Trouble? Contact: <strong>089691959828</strong></span>
+            </footer>
 
-        <!-- ===== AD POPUP ===== -->
+        </main>
+    </div>
+
+        <!-- ===== AD POPUP (dinonaktifkan — iklan sekarang masuk di main content) ===== -->
+        <!--
         <div class="ad-popup hidden" id="ad-popup">
             <div class="ad-inner" id="ad-content"></div>
             <button class="ad-close" id="ad-close">✕</button>
             <div class="ad-countdown" id="ad-countdown"></div>
         </div>
+        -->
 
         <!-- ===== FLOATING MENU ===== -->
         <button class="fab" id="menu-button" aria-label="Menu">
@@ -172,11 +203,13 @@
 
         <div class="fab-overlay hidden" id="menu-overlay"></div>
 
-    <script type="">
+    <script>
+        /* ⑤ Ads dimasukkan ke antrian template setelah semua konten utama selesai.
+              Format sama dengan templates (template_type: 'image'/'video') */
         window.SIGNAGE_DATA = {
-            templates: {{ templates|tojson|safe }},
-            advertisements: {{ ads|tojson|safe }},
-            agendas: {{ agendas|tojson|safe }}
+            templates:       {{ templates|tojson|safe }},
+            advertisements:  {{ ads|tojson|safe }},
+            agendas:         {{ agendas|tojson|safe }}
         };
     </script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>

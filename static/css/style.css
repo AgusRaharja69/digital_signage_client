@@ -466,15 +466,17 @@ html, body {
     display: flex;
     gap: 16px;
     align-items: center;
-    animation: scrollNews 40s linear infinite;
     white-space: nowrap;
+    /* Durasi animasi dihitung dinamis oleh JS (initNewsScroll)
+       berdasarkan lebar total track agar speed tetap konstan ~80px/s
+       tidak peduli berapa banyak berita */
 }
 
 .news-track:hover { animation-play-state: paused; }
 
 @keyframes scrollNews {
     0%   { transform: translateX(0); }
-    100% { transform: translateX(-50%); }
+    100% { transform: translateX(var(--news-scroll-width, -50%)); }
 }
 
 .news-chip {
@@ -664,4 +666,71 @@ html, body {
 @keyframes fadeIn {
     from { opacity: 0; }
     to   { opacity: 1; }
+}
+
+/* ============================================================
+   ③ DEVELOPER FOOTER
+   ============================================================ */
+.dev-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 5px 16px;
+    background: rgba(0,0,0,0.35);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    font-size: 11px;
+    color: rgba(255,255,255,0.28);
+    font-family: var(--font-body);
+    letter-spacing: .04em;
+    flex-shrink: 0;
+}
+.dev-footer strong { color: rgba(255,255,255,0.5); font-weight: 600; }
+.footer-sep { opacity: .35; }
+
+/* ============================================================
+   ② AGENDA TIME (jam acara)
+   ============================================================ */
+.agenda-time-sep {
+    opacity: .4;
+    margin: 0 1px;
+}
+.agenda-date svg + svg { /* clock icon */
+    color: var(--accent2);
+}
+
+/* ============================================================
+   ④ STANDBY SCREEN (layar mati saat di luar jam operasional)
+   ============================================================ */
+.standby-body {
+    margin: 0;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: 'Exo 2', sans-serif;
+    color: rgba(255,255,255,0.12);
+    flex-direction: column;
+    gap: 16px;
+    overflow: hidden;
+}
+.standby-clock {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 96px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.07);
+    letter-spacing: .04em;
+    line-height: 1;
+}
+.standby-label {
+    font-size: 16px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.1);
+}
+.standby-sub {
+    font-size: 13px;
+    color: rgba(255,255,255,0.06);
+    letter-spacing: .06em;
 }

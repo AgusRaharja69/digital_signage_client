@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Standby</title>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@700&family=Exo+2:wght@400&display=swap" rel="stylesheet">
+    <!-- Auto-refresh setiap 60 detik untuk cek apakah sudah jam operasional -->
+    <meta http-equiv="refresh" content="60">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="standby-body">
+    <div class="standby-clock" id="sb-time">--:--</div>
+    <div class="standby-label">Sistem Standby</div>
+    <div class="standby-sub">Layar aktif mulai pukul {{ time_on }}</div>
+
+    <script>
+        function tick() {
+            const now = new Date();
+            const h   = String(now.getHours()).padStart(2,'0');
+            const m   = String(now.getMinutes()).padStart(2,'0');
+            document.getElementById('sb-time').textContent = h + ':' + m;
+        }
+        tick();
+        setInterval(tick, 1000);
+    </script>
+</body>
+</html>
