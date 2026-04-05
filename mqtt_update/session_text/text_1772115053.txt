@@ -1,1 +1,0 @@
-{"id":"4d3824ed-cd2f-4259-8f21-5f6520bc1bac","content_id":5,"type":"text","title":"Hujan Badai disertai Petir","content":"Sekolah diliburkan","media_path":null,"media_url":null,"duration":15,"action":"add","publisher":"campus","event_date":null,"_sentAt":"2026-02-25T17:38:14.545Z"}
