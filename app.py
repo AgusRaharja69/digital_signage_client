@@ -190,10 +190,23 @@ def photobooth():
         f for f in os.listdir(PB_FRAMES_DIR)
         if f.lower().endswith(('.png', '.jpg', '.jpeg'))
     ])
+
+    # Baca config untuk ditampilkan di frame photobooth
+    logo_univ    = get_config('logo_univ',    'static/imgs/logo1.png')
+    logo_sekolah = get_config('logo_sekolah', 'static/imgs/logo2.png')
+    barcode_boot = get_config('barcode_boot', 'static/imgs/barcode.jpeg')
+    school_name  = get_config('school_name',  'SMKN 1 DENPASAR')
+
     pb_loader = jinja2.FileSystemLoader(PB_TEMPLATE_DIR)
     pb_env    = jinja2.Environment(loader=pb_loader)
     tmpl      = pb_env.get_template('photobooth.html')
-    html      = tmpl.render(frames=frames)
+    html      = tmpl.render(
+        frames       = frames,
+        logo_univ    = logo_univ,
+        logo_sekolah = logo_sekolah,
+        barcode_boot = barcode_boot,
+        school_name  = school_name,
+    )
     from flask import Response
     return Response(html, mimetype='text/html')
 
@@ -216,7 +229,8 @@ def pb_capture_img(filename):
 def pb_save():
     """
     Receive the already-composited image (JPEG blob) from browser canvas.
-    Browser handles all compositing — server just saves the file.
+    Browser handles all compositing — server saves the file then
+    triggers async upload to Google Drive (if photo_drive is configured).
     """
     try:
         if 'image' not in request.files:
@@ -229,15 +243,111 @@ def pb_save():
         img_file.save(out_path)
 
         print(f'[Photobooth] Saved: {out_path}')
+
+        # ── Upload ke Google Drive via Apps Script webhook ──────────────
+        # Tidak butuh google-auth — cukup HTTP POST biasa
+        webhook = get_config('photo_drive_webhook', '')
+        print(f'[Drive] Webhook config: "{webhook}"')  # ← tambah ini
+        drive_uploading = False
+        if webhook:
+            import threading
+            print(f'[Drive] Memulai thread upload ke: {webhook[:60]}...')
+            t = threading.Thread(
+                target=_upload_to_drive,
+                args=(out_path, out_name, webhook),
+                daemon=True
+            )
+            t.start()
+            drive_uploading = True
+
         return jsonify({
-            'success':  True,
-            'filename': out_name,
-            'url':      f'/photobooth/imgs/captures/{out_name}'
+            'success':        True,
+            'filename':       out_name,
+            'url':            f'/photobooth/imgs/captures/{out_name}',
+            'drive_uploading': drive_uploading,
         })
 
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+def _upload_to_drive(file_path, file_name, webhook_url):
+    try:
+        import base64 as _b64
+        import urllib.request
+        import urllib.error
+        import json as _json
+
+        print(f'[Drive] Memulai upload: {file_name}')
+
+        with open(file_path, 'rb') as f:
+            raw = f.read()
+        b64data = _b64.b64encode(raw).decode('utf-8')
+
+        payload = _json.dumps({
+            'filename': file_name,
+            'data':     b64data,
+            'mimeType': 'image/jpeg',
+        }).encode('utf-8')
+
+        url = webhook_url
+        MAX_REDIRECTS = 5
+
+        for attempt in range(MAX_REDIRECTS):
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                headers={
+                    'Content-Type': 'application/json',
+                },
+                method='POST'
+            )
+
+            class NoRedirect(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, headers, newurl):
+                    return None
+
+            opener = urllib.request.build_opener(NoRedirect)
+
+            try:
+                with opener.open(req, timeout=60) as resp:
+                    body = resp.read().decode('utf-8')
+                    print(f'[Drive] Response raw: {body[:200]}')
+                    try:
+                        result = _json.loads(body)
+                        if result.get('success'):
+                            print(f'[Drive] ✅ Upload berhasil: {result.get("filename")} → {result.get("viewLink")}')
+                        else:
+                            print(f'[Drive] ❌ Upload gagal: {result.get("error")}')
+                    except Exception:
+                        print(f'[Drive] Response bukan JSON: {body[:300]}')
+                    return
+
+            except urllib.error.HTTPError as e:
+                if e.code in (301, 302, 303, 307, 308):
+                    location = e.headers.get('Location', '')
+                    print(f'[Drive] Redirect {e.code} → {location[:80]}')
+
+                    # 303 = POST → GET (tidak bisa di-POST ulang)
+                    # Untuk Apps Script, kita ABAIKAN redirect dan anggap sukses
+                    # karena redirect 302 dari /exec ke echo berarti request diterima
+                    if e.code == 302 and 'script.googleusercontent.com' in location:
+                        print(f'[Drive] ✅ Apps Script menerima request (302 ke echo = sukses)')
+                        return
+
+                    url = location
+                    continue
+                else:
+                    body = e.read().decode('utf-8', errors='replace')
+                    print(f'[Drive] HTTP error {e.code}: {body[:300]}')
+                    return
+
+        print(f'[Drive] Terlalu banyak redirect ({MAX_REDIRECTS}x)')
+
+    except Exception as e:
+        print(f'[Drive] Upload error: {e}')
+        import traceback; traceback.print_exc()
 
 
 def _cover_crop(img, tw, th):

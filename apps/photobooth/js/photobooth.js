@@ -220,7 +220,12 @@ async function composeInBrowser() {
     // 3. Draw frame ON TOP (covers decorative areas, keeps slots transparent)
     ctx.drawImage(frame, 0, 0, fw, fh);
 
-    // 4. Convert to blob and send to server to save
+    // 4. Draw header overlay: logo_univ + logo_sekolah side by side + school name below
+    // 5. Draw footer overlay: barcode centered at bottom
+    // Semua data dari window.PB_CONFIG yang di-inject dari database config
+    await drawOverlays(ctx, fw, fh);
+
+    // 6. Convert to blob and send to server to save
     canvas.toBlob(async (blob) => {
         try {
             const formData = new FormData();
@@ -234,14 +239,13 @@ async function composeInBrowser() {
             const result = await resp.json();
 
             if (result.success) {
-                showResult(result.url);
+                showResult(result.url, result.drive_uploading);
             } else {
-                // Fallback: show from canvas directly
-                showResult(canvas.toDataURL('image/jpeg', 0.95));
+                showResult(canvas.toDataURL('image/jpeg', 0.95), false);
             }
         } catch (err) {
             console.error('Save error:', err);
-            showResult(canvas.toDataURL('image/jpeg', 0.95));
+            showResult(canvas.toDataURL('image/jpeg', 0.95), false);
         }
     }, 'image/jpeg', 0.95);
 }
@@ -249,9 +253,21 @@ async function composeInBrowser() {
 /* ══════════════════════════════════════════════════════════════
    RESULT SCREEN
    ══════════════════════════════════════════════════════════════ */
-function showResult(url) {
+function showResult(url, driveUploading) {
     $('result-img').src = url;
     showScreen('screen-result');
+
+    // Tampilkan badge status Drive jika upload sedang berjalan
+    const driveBadge = $('drive-status');
+    if (driveBadge) {
+        if (driveUploading) {
+            driveBadge.className = 'drive-badge uploading';
+            driveBadge.innerHTML = '<span class="drive-spin">⟳</span> Mengirim ke Google Drive…';
+            driveBadge.style.display = 'flex';
+        } else {
+            driveBadge.style.display = 'none';
+        }
+    }
 
     const bar  = $('result-bar');
     const secEl = $('result-sec');
@@ -285,8 +301,118 @@ function goHome() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   HELPERS
+   CANVAS OVERLAYS
+   Gambar header (logo + nama sekolah) dan footer (barcode)
+   di atas frame yang sudah jadi.
+   
+   Layout pada canvas 1000×2000:
+   ┌─────────────────────────────┐
+   │  [logo1]  [logo2]           │  ← header area ~0–22% (y: 0–440)
+   │   NAMA SEKOLAH              │
+   │   foto 1                    │
+   │   foto 2                    │
+   │   foto 3                    │
+   │      [ BARCODE ]            │  ← footer area ~88–100% (y: 1760–2000)
+   └─────────────────────────────┘
    ══════════════════════════════════════════════════════════════ */
+async function drawOverlays(ctx, fw, fh) {
+    const cfg = window.PB_CONFIG || {};
+
+    // ── HEADER: dua logo bersebelahan ─────────────────────────────────────
+    const HEADER_TOP    = 30;        // px dari atas canvas
+    const HEADER_H      = 160;       // tinggi area logo
+    const LOGO_W        = 140;       // lebar tiap logo
+    const LOGO_H        = 140;       // tinggi tiap logo
+    const LOGO_GAP      = 32;        // jarak antar logo
+    const totalLogoW    = LOGO_W * 2 + LOGO_GAP;
+    const logoStartX    = (fw - totalLogoW) / 2;
+
+    // Gambar logo universitas
+    if (cfg.logoUniv) {
+        try {
+            const img = await loadImage(cfg.logoUniv);
+            const logoY = HEADER_TOP + (HEADER_H - LOGO_H) / 2;
+            const { dx, dy, dw, dh } = fitContain(
+                img.naturalWidth, img.naturalHeight,
+                logoStartX, logoY, LOGO_W, LOGO_H
+            );
+            ctx.drawImage(img, dx, dy, dw, dh);
+        } catch(e) { console.warn('logo_univ load failed', e); }
+    }
+
+    // Gambar logo sekolah
+    if (cfg.logoSekolah) {
+        try {
+            const img = await loadImage(cfg.logoSekolah);
+            const logoX = logoStartX + LOGO_W + LOGO_GAP;
+            const logoY = HEADER_TOP + (HEADER_H - LOGO_H) / 2;
+            const { dx, dy, dw, dh } = fitContain(
+                img.naturalWidth, img.naturalHeight,
+                logoX, logoY, LOGO_W, LOGO_H
+            );
+            ctx.drawImage(img, dx, dy, dw, dh);
+        } catch(e) { console.warn('logo_sekolah load failed', e); }
+    }
+
+    // ── HEADER: nama sekolah di bawah logo ───────────────────────────────
+    if (cfg.schoolName) {
+        const textY = HEADER_TOP + HEADER_H + 18;
+        const fontSize = Math.round(fw * 0.052);   // ~52px pada canvas 1000px
+
+        ctx.save();
+        ctx.font         = `700 ${fontSize}px 'Arial', sans-serif`;
+        ctx.fillStyle    = '#FFFFFF';
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'top';
+
+        // Drop shadow agar terbaca di atas background gelap/terang
+        ctx.shadowColor   = 'rgba(0,0,0,0.7)';
+        ctx.shadowBlur    = 8;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+
+        // Uppercase otomatis
+        ctx.fillText(cfg.schoolName.toUpperCase(), fw / 2, textY);
+        ctx.restore();
+    }
+
+    // ── FOOTER: barcode di tengah bawah ──────────────────────────────────
+    if (cfg.barcodeUrl) {
+        try {
+            const img = await loadImage(cfg.barcodeUrl);
+
+            const BARCODE_W  = 200;
+            const BARCODE_H  = 200;
+            const BARCODE_Y  = fh - BARCODE_H - 36;   // 36px dari bawah
+            const BARCODE_X  = (fw - BARCODE_W) / 2;
+
+            // Background putih agar barcode bisa di-scan
+            ctx.save();
+            ctx.fillStyle = '#FFFFFF';
+            const PAD = 12;
+            ctx.fillRect(BARCODE_X - PAD, BARCODE_Y - PAD, BARCODE_W + PAD*2, BARCODE_H + PAD*2);
+
+            const { dx, dy, dw, dh } = fitContain(
+                img.naturalWidth, img.naturalHeight,
+                BARCODE_X, BARCODE_Y, BARCODE_W, BARCODE_H
+            );
+            ctx.drawImage(img, dx, dy, dw, dh);
+            ctx.restore();
+        } catch(e) { console.warn('barcode load failed', e); }
+    }
+}
+
+/* Hitung posisi gambar agar fit di dalam kotak (object-fit: contain, centered). */
+function fitContain(imgW, imgH, boxX, boxY, boxW, boxH) {
+    const scale = Math.min(boxW / imgW, boxH / imgH);
+    const dw    = imgW * scale;
+    const dh    = imgH * scale;
+    const dx    = boxX + (boxW - dw) / 2;
+    const dy    = boxY + (boxH - dh) / 2;
+    return { dx, dy, dw, dh };
+}
+
+
 function stopCamera() {
     if (PB.stream) {
         PB.stream.getTracks().forEach(t => t.stop());

@@ -118,6 +118,9 @@
         </div>
         <p class="result-hint">Kembali otomatis dalam <strong id="result-sec">10</strong> detik</p>
 
+        <!-- Badge status upload Google Drive -->
+        <div class="drive-badge" id="drive-status" style="display:none"></div>
+
         <button class="btn-home" onclick="goHome()">🏠 Kembali Sekarang</button>
     </div>
 </div>
@@ -125,6 +128,15 @@
 <!-- Hidden canvas used for compositing -->
 <canvas id="compose-canvas" style="display:none"></canvas>
 
+<!-- Config dari database — dipakai JS untuk overlay frame -->
+<script>
+window.PB_CONFIG = {
+    logoUniv:    '/{{ logo_univ }}',
+    logoSekolah: '/{{ logo_sekolah }}',
+    barcodeUrl:  '/{{ barcode_boot }}',
+    schoolName:  '{{ school_name }}',
+};
+</script>
 <script src="/photobooth/static/js/photobooth.js"></script>
 </body>
 </html>
