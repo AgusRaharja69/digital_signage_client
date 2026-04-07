@@ -33,6 +33,7 @@ html, body {
 }
 
 /* ---------- Scanlines overlay (subtle CRT effect) ---------- */
+/* Diangkat ke GPU layer sendiri agar tidak composite dengan video decoder */
 .scanlines {
     position: fixed; inset: 0;
     background: repeating-linear-gradient(
@@ -44,6 +45,9 @@ html, body {
     );
     pointer-events: none;
     z-index: 9000;
+    will-change: transform;          /* promote ke GPU compositing layer */
+    transform: translateZ(0);        /* force GPU layer, lepas dari video layer */
+    /* Nonaktif saat video bermain (ditangani JS class .video-playing di body) */
 }
 
 /* ============================================================
@@ -80,6 +84,11 @@ html, body {
     background: radial-gradient(ellipse at 50% 30%, rgba(78,204,163,0.06) 0%, transparent 65%);
     animation: sidePulse 8s ease-in-out infinite alternate;
     pointer-events: none;
+    will-change: transform, opacity;  /* GPU layer */
+}
+/* Hentikan animasi sidebar saat video main — bebaskan GPU untuk decoder */
+body.video-playing .sidebar::before {
+    animation-play-state: paused;
 }
 @keyframes sidePulse {
     from { opacity: .5; transform: scale(1); }
@@ -367,10 +376,22 @@ html, body {
     width: 100%; height: 100%;
     object-fit: contain;
     animation: mediaIn .6s cubic-bezier(.22,1,.36,1);
+    /* GPU compositing — video decoder butuh layer sendiri */
+    transform: translateZ(0);
+    will-change: opacity;
+    backface-visibility: hidden;
+}
+/* Video: hapus scale animation — scale transform paksa re-composite setiap frame */
+.media-el[data-type="video"] {
+    animation: mediaFadeIn .4s ease;
 }
 @keyframes mediaIn {
-    from { opacity: 0; transform: scale(1.04); }
-    to   { opacity: 1; transform: scale(1); }
+    from { opacity: 0; transform: translateZ(0) scale(1.04); }
+    to   { opacity: 1; transform: translateZ(0) scale(1); }
+}
+@keyframes mediaFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
 
 /* Progress bar (images only) */
@@ -473,6 +494,8 @@ html, body {
 }
 
 .news-track:hover { animation-play-state: paused; }
+/* Juga pause saat video main agar GPU bebas untuk decoder */
+body.video-playing .news-track { animation-play-state: paused; }
 
 @keyframes scrollNews {
     0%   { transform: translateX(0); }

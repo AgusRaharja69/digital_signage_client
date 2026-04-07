@@ -273,17 +273,34 @@ function showVideoTemplate(display, item, index) {
     const vid = buildVideo('/' + item.file_path, false);
 
     vid.addEventListener('ended', () => {
-        console.log('Video ended, advancing');
         advanceTemplate(index);
     });
 
     vid.addEventListener('error', () => {
-        console.error('Video load error, skipping in 3s');
+        console.error('Video error, skipping in 3s');
         setTimeout(() => advanceTemplate(index), 3000);
     });
 
     display.appendChild(vid);
-    // No setTimeout — duration driven by video's natural end
+
+    // play() explicit — lebih reliable dari autoplay attribute di Raspberry Pi
+    vid.play()
+        .then(() => {
+            // .then() = browser sudah commit play, aman untuk unmute
+            // Ini satu-satunya tempat yang benar untuk unmute:
+            // - Bukan di 'playing' event  → bisa trigger policy re-evaluation
+            // - Bukan di 'volumechange'   → infinite loop
+            // - Bukan sebelum play()      → autoplay langsung diblokir
+            vid.muted  = false;
+            vid.volume = 1.0;
+        })
+        .catch(err => {
+            // Autoplay masih diblokir (policy strict / flag belum dipasang)
+            console.warn('[Video] play() blocked:', err.message);
+            console.warn('[Video] Pastikan Chromium flag sudah dipasang:');
+            console.warn('[Video] --autoplay-policy=no-user-gesture-required');
+            // Video tetap berjalan (muted), tidak perlu fallback lain
+        });
 }
 
 function advanceTemplate(fromIndex) {
@@ -320,6 +337,8 @@ function safeCleanDisplay(display) {
         }
         el.remove();
     });
+    // Bersihkan flag video-playing saat media diganti
+    document.body.classList.remove('video-playing');
 
     const placeholder = display.querySelector('.media-placeholder');
     if (placeholder) placeholder.remove();
@@ -340,11 +359,28 @@ function buildVideo(src, loop = false) {
     const vid = document.createElement('video');
     vid.src         = src;
     vid.className   = 'media-el';
-    vid.autoplay    = true;
-    vid.muted       = true;
+    vid.dataset.type = 'video';
+    vid.muted       = true;     // mulai muted agar autoplay tidak diblokir
     vid.loop        = loop;
     vid.playsInline = true;
     vid.preload     = 'auto';
+    vid.volume      = 1.0;
+
+    vid.setAttribute('x-webkit-airplay', 'allow');
+    vid.setAttribute('webkit-playsinline', '');
+    vid.controls               = false;
+    vid.disablePictureInPicture = true;
+
+    vid.addEventListener('playing', () => {
+        document.body.classList.add('video-playing');
+    });
+    vid.addEventListener('pause', () => {
+        document.body.classList.remove('video-playing');
+    });
+    vid.addEventListener('ended', () => {
+        document.body.classList.remove('video-playing');
+    });
+
     return vid;
 }
 
