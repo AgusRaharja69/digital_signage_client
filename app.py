@@ -47,7 +47,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'ads'), exist_ok=True)
 
 # ── Photo slot positions on 1000×2000 frame canvas ───────────────────────────
-# Auto-detected from black regions in frame1/2/3.PNG (high-res version)
 PB_SLOTS = [
     (111, 441,  775, 364),   # slot 1
     (111, 855,  775, 364),   # slot 2
@@ -79,7 +78,10 @@ def get_config(key, default=None):
 def set_config(key, value):
     try:
         conn = get_db()
-        conn.execute('INSERT OR REPLACE INTO config (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)', (key, value))
+        conn.execute(
+            'INSERT OR REPLACE INTO config (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)',
+            (key, value)
+        )
         conn.commit()
         conn.close()
         return True
@@ -93,11 +95,10 @@ def set_config(key, value):
 
 def is_display_on():
     """Return True if the display should currently be ON based on config."""
-    from datetime import date as _date
-    now       = datetime.now()
-    time_on   = get_config('time_on',  '00:00')
-    time_off  = get_config('time_off', '23:59')
-    date_off  = get_config('date_off', '')
+    now      = datetime.now()
+    time_on  = get_config('time_on',  '00:00')
+    time_off = get_config('time_off', '23:59')
+    date_off = get_config('date_off', '')
 
     # Check date_off list
     today_str = now.strftime('%Y-%m-%d')
@@ -140,13 +141,17 @@ def index():
         news      = [dict(r) for r in conn.execute(
             'SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC').fetchall()]
 
-        device_name      = get_config('device_name',     'Digital Signage')
-        main_color       = get_config('main_color',      '#4ecca3')
-        secondary_color  = get_config('secondary_color', '#00b4d8')
-        bg_color         = get_config('bg_color',        '#060a12')
-        logo_univ        = get_config('logo_univ',       'static/imgs/logo1.png')
-        logo_sekolah     = get_config('logo_sekolah',    'static/imgs/logo2.png')
-        barcode_boot     = get_config('barcode_boot',    'static/imgs/barcode.jpeg')
+        device_name     = get_config('device_name',     'Digital Signage')
+        main_color      = get_config('main_color',      '#4ecca3')
+        secondary_color = get_config('secondary_color', '#00b4d8')
+        bg_color        = get_config('bg_color',        '#060a12')
+        logo_univ       = get_config('logo_univ',       'static/imgs/logo1.png')
+        logo_sekolah    = get_config('logo_sekolah',    'static/imgs/logo2.png')
+        barcode_boot    = get_config('barcode_boot',    'static/imgs/barcode.jpeg')
+
+        # ── Schedule config — dikirim ke JS untuk clock-based standby trigger ──
+        time_off = get_config('time_off', '23:59')
+        time_on  = get_config('time_on',  '07:00')
 
         conn.close()
 
@@ -162,10 +167,14 @@ def index():
                                logo_univ=logo_univ,
                                logo_sekolah=logo_sekolah,
                                barcode_boot=barcode_boot,
+                               time_off=time_off,
+                               time_on=time_on,
                                current_time=datetime.now())
+
     except Exception as e:
         import traceback; traceback.print_exc()
         return f"<h1>Error</h1><p>{e}</p>", 500
+
 
 # ── Gallery ───────────────────────────────────────────────────────────────────
 @app.route('/gallery')
@@ -176,11 +185,11 @@ def gallery():
     ], reverse=True)
     return render_template('gallery.html', captures=captures)
 
+
 # ═════════════════════════════════════════════════════════════════════════════
 # PHOTOBOOTH ROUTES  (served under /photobooth/...)
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Photobooth page — renders from apps/photobooth/templates/
 import jinja2
 
 @app.route('/photobooth')
@@ -191,7 +200,6 @@ def photobooth():
         if f.lower().endswith(('.png', '.jpg', '.jpeg'))
     ])
 
-    # Baca config untuk ditampilkan di frame photobooth
     logo_univ    = get_config('logo_univ',    'static/imgs/logo1.png')
     logo_sekolah = get_config('logo_sekolah', 'static/imgs/logo2.png')
     barcode_boot = get_config('barcode_boot', 'static/imgs/barcode.jpeg')
@@ -211,7 +219,6 @@ def photobooth():
     return Response(html, mimetype='text/html')
 
 
-# Static files for photobooth (css, js, imgs)
 @app.route('/photobooth/static/<path:filepath>')
 def pb_static(filepath):
     return send_from_directory(PB_DIR, filepath)
@@ -230,7 +237,7 @@ def pb_save():
     """
     Receive the already-composited image (JPEG blob) from browser canvas.
     Browser handles all compositing — server saves the file then
-    triggers async upload to Google Drive (if photo_drive is configured).
+    triggers async upload to Google Drive (if photo_drive_webhook is configured).
     """
     try:
         if 'image' not in request.files:
@@ -244,14 +251,10 @@ def pb_save():
 
         print(f'[Photobooth] Saved: {out_path}')
 
-        # ── Upload ke Google Drive via Apps Script webhook ──────────────
-        # Tidak butuh google-auth — cukup HTTP POST biasa
         webhook = get_config('photo_drive_webhook', '')
-        print(f'[Drive] Webhook config: "{webhook}"')  # ← tambah ini
         drive_uploading = False
         if webhook:
             import threading
-            print(f'[Drive] Memulai thread upload ke: {webhook[:60]}...')
             t = threading.Thread(
                 target=_upload_to_drive,
                 args=(out_path, out_name, webhook),
@@ -261,9 +264,9 @@ def pb_save():
             drive_uploading = True
 
         return jsonify({
-            'success':        True,
-            'filename':       out_name,
-            'url':            f'/photobooth/imgs/captures/{out_name}',
+            'success':         True,
+            'filename':        out_name,
+            'url':             f'/photobooth/imgs/captures/{out_name}',
             'drive_uploading': drive_uploading,
         })
 
@@ -273,6 +276,10 @@ def pb_save():
 
 
 def _upload_to_drive(file_path, file_name, webhook_url):
+    """
+    Upload foto ke Google Drive via Google Apps Script Web App.
+    Follow redirect manual agar POST body tidak hilang saat redirect 302.
+    """
     try:
         import base64 as _b64
         import urllib.request
@@ -291,17 +298,18 @@ def _upload_to_drive(file_path, file_name, webhook_url):
             'mimeType': 'image/jpeg',
         }).encode('utf-8')
 
-        url = webhook_url
         MAX_REDIRECTS = 5
+        url = webhook_url
 
         for attempt in range(MAX_REDIRECTS):
             req = urllib.request.Request(
                 url,
-                data=payload,
-                headers={
-                    'Content-Type': 'application/json',
+                data    = payload,
+                headers = {
+                    'Content-Type':   'application/json',
+                    'Content-Length': str(len(payload)),
                 },
-                method='POST'
+                method = 'POST'
             )
 
             class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -312,31 +320,21 @@ def _upload_to_drive(file_path, file_name, webhook_url):
 
             try:
                 with opener.open(req, timeout=60) as resp:
-                    body = resp.read().decode('utf-8')
-                    print(f'[Drive] Response raw: {body[:200]}')
-                    try:
-                        result = _json.loads(body)
-                        if result.get('success'):
-                            print(f'[Drive] ✅ Upload berhasil: {result.get("filename")} → {result.get("viewLink")}')
-                        else:
-                            print(f'[Drive] ❌ Upload gagal: {result.get("error")}')
-                    except Exception:
-                        print(f'[Drive] Response bukan JSON: {body[:300]}')
+                    body   = resp.read().decode('utf-8')
+                    result = _json.loads(body)
+                    if result.get('success'):
+                        print(f'[Drive] ✅ Upload berhasil: {result.get("filename")} → {result.get("viewLink")}')
+                    else:
+                        print(f'[Drive] ❌ Upload gagal: {result.get("error")}')
                     return
 
             except urllib.error.HTTPError as e:
                 if e.code in (301, 302, 303, 307, 308):
-                    location = e.headers.get('Location', '')
-                    print(f'[Drive] Redirect {e.code} → {location[:80]}')
-
-                    # 303 = POST → GET (tidak bisa di-POST ulang)
-                    # Untuk Apps Script, kita ABAIKAN redirect dan anggap sukses
-                    # karena redirect 302 dari /exec ke echo berarti request diterima
-                    if e.code == 302 and 'script.googleusercontent.com' in location:
-                        print(f'[Drive] ✅ Apps Script menerima request (302 ke echo = sukses)')
+                    url = e.headers.get('Location', '')
+                    if not url:
+                        print('[Drive] Redirect tanpa Location header')
                         return
-
-                    url = location
+                    print(f'[Drive] Redirect {e.code} → {url[:80]}')
                     continue
                 else:
                     body = e.read().decode('utf-8', errors='replace')
@@ -362,8 +360,6 @@ def _cover_crop(img, tw, th):
     return img.crop((l, t, l + tw, t + th))
 
 
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # API ENDPOINTS
 # ═════════════════════════════════════════════════════════════════════════════
@@ -372,7 +368,9 @@ def _cover_crop(img, tw, th):
 def api_templates():
     try:
         conn = get_db()
-        rows = conn.execute('SELECT * FROM templates WHERE is_active=1 ORDER BY display_order').fetchall()
+        rows = conn.execute(
+            'SELECT * FROM templates WHERE is_active=1 ORDER BY display_order'
+        ).fetchall()
         conn.close()
         return jsonify({'success': True, 'templates': [dict(r) for r in rows]})
     except Exception as e:
@@ -382,7 +380,9 @@ def api_templates():
 def api_advertisements():
     try:
         conn = get_db()
-        rows = conn.execute('SELECT * FROM advertisements WHERE is_active=1 ORDER BY display_order').fetchall()
+        rows = conn.execute(
+            'SELECT * FROM advertisements WHERE is_active=1 ORDER BY display_order'
+        ).fetchall()
         conn.close()
         return jsonify({'success': True, 'advertisements': [dict(r) for r in rows]})
     except Exception as e:
@@ -392,7 +392,9 @@ def api_advertisements():
 def api_agendas():
     try:
         conn = get_db()
-        rows = conn.execute('SELECT * FROM agendas WHERE is_active=1 ORDER BY position').fetchall()
+        rows = conn.execute(
+            'SELECT * FROM agendas WHERE is_active=1 ORDER BY position'
+        ).fetchall()
         conn.close()
         return jsonify({'success': True, 'agendas': [dict(r) for r in rows]})
     except Exception as e:
@@ -402,7 +404,9 @@ def api_agendas():
 def api_news():
     try:
         conn = get_db()
-        rows = conn.execute('SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC').fetchall()
+        rows = conn.execute(
+            'SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC'
+        ).fetchall()
         conn.close()
         return jsonify({'success': True, 'news': [dict(r) for r in rows]})
     except Exception as e:
@@ -424,8 +428,12 @@ def api_config_update():
         data = request.get_json()
         conn = get_db()
         for k, v in data.items():
-            conn.execute('INSERT OR REPLACE INTO config (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)', (k, str(v)))
-        conn.commit(); conn.close()
+            conn.execute(
+                'INSERT OR REPLACE INTO config (key,value,updated_at) VALUES (?,?,CURRENT_TIMESTAMP)',
+                (k, str(v))
+            )
+        conn.commit()
+        conn.close()
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -444,12 +452,19 @@ def api_photobooth_capture():
             f.write(image_bytes)
         conn = get_db()
         cur  = conn.cursor()
-        cur.execute('INSERT INTO photos (filename, filepath, session_id) VALUES (?,?,?)',
-                    (filename, filepath, data.get('session_id', '')))
+        cur.execute(
+            'INSERT INTO photos (filename, filepath, session_id) VALUES (?,?,?)',
+            (filename, filepath, data.get('session_id', ''))
+        )
         photo_id = cur.lastrowid
-        conn.commit(); conn.close()
-        return jsonify({'success': True, 'photo_id': photo_id, 'filename': filename,
-                        'url': url_for('static', filename=f'uploads/{filename}')})
+        conn.commit()
+        conn.close()
+        return jsonify({
+            'success':  True,
+            'photo_id': photo_id,
+            'filename': filename,
+            'url':      url_for('static', filename=f'uploads/{filename}')
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -479,11 +494,32 @@ def health_check():
         'device_id':   get_config('device_id', 'unknown')
     })
 
+@app.route('/api/schedule/status')
+def schedule_status():
+    """
+    Endpoint schedule — tetap ada untuk kompatibilitas standby.html (checkWakeUp).
+    script.js tidak lagi polling endpoint ini — standby trigger via clock JS.
+    """
+    on       = is_display_on()
+    time_on  = get_config('time_on',  '07:00')
+    time_off = get_config('time_off', '17:00')
+    return jsonify({
+        'display_on': on,
+        'time_on':    time_on,
+        'time_off':   time_off,
+        'now':        datetime.now().strftime('%H:%M'),
+    })
+
+
 # ── Error handlers ────────────────────────────────────────────────────────────
 @app.errorhandler(404)
-def not_found(e):    return jsonify({'error': 'Not found'}), 404
+def not_found(e):
+    return jsonify({'error': 'Not found'}), 404
+
 @app.errorhandler(500)
-def server_error(e): return jsonify({'error': 'Internal server error'}), 500
+def server_error(e):
+    return jsonify({'error': 'Internal server error'}), 500
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # ENTRY POINT
@@ -498,11 +534,12 @@ if __name__ == '__main__':
     print(f"  Device ID   : {get_config('device_id')}")
     print(f"  Device Name : {get_config('device_name')}")
     print(f"  MQTT        : {get_config('mqtt_broker')}:{get_config('mqtt_port')}")
+    print(f"  Schedule    : {get_config('time_on','07:00')} → {get_config('time_off','17:00')}")
     print(f"  Frames      : {len(os.listdir(PB_FRAMES_DIR))} frame(s)")
     print("="*70)
-    print("  http://localhost:5000          — Main display")
+    print("  http://localhost:5000            — Main display")
     print("  http://localhost:5000/photobooth — Photobooth")
-    print("  http://localhost:5000/health   — Health check")
+    print("  http://localhost:5000/health     — Health check")
     print("  Ctrl+C to stop\n")
 
     app.run(host='0.0.0.0', port=5000, debug=False,

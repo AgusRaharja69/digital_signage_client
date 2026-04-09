@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <title>Standby</title>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@700&family=Exo+2:wght@400&display=swap" rel="stylesheet">
-    <!-- Auto-refresh setiap 60 detik untuk cek apakah sudah jam operasional -->
-    <meta http-equiv="refresh" content="60">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="standby-body">
@@ -14,14 +12,36 @@
     <div class="standby-sub">Layar aktif mulai pukul {{ time_on }}</div>
 
     <script>
+        // Jam berjalan
         function tick() {
             const now = new Date();
-            const h   = String(now.getHours()).padStart(2,'0');
-            const m   = String(now.getMinutes()).padStart(2,'0');
+            const h = String(now.getHours()).padStart(2, '0');
+            const m = String(now.getMinutes()).padStart(2, '0');
             document.getElementById('sb-time').textContent = h + ':' + m;
         }
         tick();
         setInterval(tick, 1000);
+
+        // Polling ke server setiap 30 detik
+        // Saat display_on = true → langsung reload ke halaman utama
+        async function checkWakeUp() {
+            try {
+                const resp = await fetch('/api/schedule/status');
+                if (!resp.ok) return;
+                const data = await resp.json();
+                if (data.display_on) {
+                    console.log('Wakeup! Redirecting to main display...');
+                    window.location.href = '/';
+                }
+            } catch (e) {
+                // Server belum siap, coba lagi
+            }
+        }
+
+        // Cek langsung saat halaman load (kalau refresh manual pas jam aktif)
+        checkWakeUp();
+        // Cek setiap 30 detik
+        setInterval(checkWakeUp, 30 * 1000);
     </script>
 </body>
 </html>

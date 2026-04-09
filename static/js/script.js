@@ -8,7 +8,24 @@
    ============================================================ */
 
 'use strict';
+// Di atas STATE — nilai awal dari inject Flask, akan diupdate oleh fetchScheduleConfig
+let SCHED_OFF = window.SIGNAGE_DATA?.time_off || '23:59';
+let SCHED_ON  = window.SIGNAGE_DATA?.time_on  || '07:00';
 
+// Fetch config jadwal dari DB setiap 60 detik
+// Hanya update variabel memory — tidak redirect, tidak ganggu media
+async function fetchScheduleConfig() {
+    try {
+        const resp = await fetch('/api/schedule/status');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        SCHED_OFF = data.time_off || SCHED_OFF;
+        SCHED_ON  = data.time_on  || SCHED_ON;
+        console.log(`[Schedule] Config updated: on=${SCHED_ON} off=${SCHED_OFF}`);
+    } catch (e) {
+        // Gagal fetch → tetap pakai nilai sebelumnya
+    }
+}
 const STATE = {
     templates: window.SIGNAGE_DATA?.templates || [],
     ads:       window.SIGNAGE_DATA?.advertisements || [],
@@ -46,6 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initFloatingMenu();
     initAdHandlers();
     startTemplateRotation();
+    // Sync jadwal dari DB setiap 60 detik — hanya update variabel, tidak redirect
+    fetchScheduleConfig();
+    setInterval(fetchScheduleConfig, 60 * 1000);
 });
 
 /* ============================================================
@@ -73,6 +93,20 @@ function updateDateTime() {
     const dateEl = document.getElementById('current-date');
     if (dayEl)  dayEl.textContent  = days[now.getDay()];
     if (dateEl) dateEl.textContent = months[now.getMonth()] + ' ' + String(now.getDate()).padStart(2,'0');
+
+    // Cek standby via clock — trigger tepat saat detik 0 menit berganti
+    if (now.getSeconds() === 0) {
+        const nowMin = now.getHours() * 60 + now.getMinutes();
+        const [offH, offM] = SCHED_OFF.split(':').map(Number);
+        const [onH,  onM]  = SCHED_ON.split(':').map(Number);
+        const offMin = offH * 60 + offM;
+        const onMin  = onH  * 60 + onM;
+
+        if (nowMin < onMin || nowMin >= offMin) {
+            console.log(`[Schedule] Masuk standby — now=${nowMin} on=${onMin} off=${offMin}`);
+            window.location.href = '/';
+        }
+    }
 }
 
 /* ============================================================
@@ -283,24 +317,28 @@ function showVideoTemplate(display, item, index) {
 
     display.appendChild(vid);
 
-    // play() explicit — lebih reliable dari autoplay attribute di Raspberry Pi
-    vid.play()
-        .then(() => {
-            // .then() = browser sudah commit play, aman untuk unmute
-            // Ini satu-satunya tempat yang benar untuk unmute:
-            // - Bukan di 'playing' event  → bisa trigger policy re-evaluation
-            // - Bukan di 'volumechange'   → infinite loop
-            // - Bukan sebelum play()      → autoplay langsung diblokir
-            vid.muted  = false;
-            vid.volume = 1.0;
-        })
-        .catch(err => {
-            // Autoplay masih diblokir (policy strict / flag belum dipasang)
-            console.warn('[Video] play() blocked:', err.message);
-            console.warn('[Video] Pastikan Chromium flag sudah dipasang:');
-            console.warn('[Video] --autoplay-policy=no-user-gesture-required');
-            // Video tetap berjalan (muted), tidak perlu fallback lain
+    // Explicit play() — jangan hanya andalkan autoplay attribute
+    // Chromium di Raspberry Pi kadang abaikan autoplay tapi hormati play()
+    const playPromise = vid.play();
+    if (playPromise !== undefined) {
+        playPromise.catch(err => {
+            // Autoplay diblokir browser — kemungkinan policy strict
+            // Solusi: tambah --autoplay-policy=no-user-gesture-required ke Chromium flags
+            console.warn('[Video] Autoplay blocked:', err.name, '—', err.message);
+            console.warn('[Video] Tambah flag Chromium: --autoplay-policy=no-user-gesture-required');
+
+            // Fallback: tunggu interaksi user pertama lalu play
+            const forcePlay = () => {
+                vid.play().catch(() => {});
+                document.removeEventListener('click',      forcePlay);
+                document.removeEventListener('keydown',    forcePlay);
+                document.removeEventListener('touchstart', forcePlay);
+            };
+            document.addEventListener('click',      forcePlay, { once: true });
+            document.addEventListener('keydown',    forcePlay, { once: true });
+            document.addEventListener('touchstart', forcePlay, { once: true });
         });
+    }
 }
 
 function advanceTemplate(fromIndex) {
@@ -360,7 +398,7 @@ function buildVideo(src, loop = false) {
     vid.src         = src;
     vid.className   = 'media-el';
     vid.dataset.type = 'video';
-    vid.muted       = true;     // mulai muted agar autoplay tidak diblokir
+    vid.muted       = false;     // tetap muted — suara dikontrol oleh Chromium flag
     vid.loop        = loop;
     vid.playsInline = true;
     vid.preload     = 'auto';

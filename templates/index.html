@@ -202,14 +202,13 @@
         </nav>
 
         <div class="fab-overlay hidden" id="menu-overlay"></div>
-
     <script>
-        /* ⑤ Ads dimasukkan ke antrian template setelah semua konten utama selesai.
-              Format sama dengan templates (template_type: 'image'/'video') */
         window.SIGNAGE_DATA = {
-            templates:       {{ templates|tojson|safe }},
-            advertisements:  {{ ads|tojson|safe }},
-            agendas:         {{ agendas|tojson|safe }}
+            templates:      {{ templates|tojson|safe }},
+            advertisements: {{ ads|tojson|safe }},
+            agendas:        {{ agendas|tojson|safe }},
+            time_off:       "{{ time_off }}",
+            time_on:        "{{ time_on }}"
         };
     </script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
