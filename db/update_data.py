@@ -91,6 +91,8 @@ def update_config(c):
         'school_name':         'SMAN 1 TABANAN',
         'wifi_ssid':           'awlr_wifi',
         'wifi_password':       'Warmadewa2025',
+        'time_off': '19:10',
+        'time_on': '19:13',
         'photo_drive_webhook': 'https://script.google.com/macros/s/AKfycbwp5U6C7j9BTBrOjYIXgEiXJ2XJn6N1u9Ex6SUU3ccMQM4FaD9GDye2haZ7Pp4KOboRMg/exec',
     }
 
@@ -122,7 +124,7 @@ def update_templates(c):
     c.execute('DELETE FROM templates')
 
     templates = [
-        ('video', 'profile sekolah', 'static/uploads/profile.mp4',       30, 1, 1),
+        ('video', 'profile sekolah', 'static/uploads/profile.mp4',       1, 1, 1),
         ('video', 'profile UNWAR',   'static/uploads/profile-warma.mp4',  30, 1, 2),
         ('video', 'jinggle UNWAR',   'static/uploads/jinggle-warma.mp4',  30, 1, 3),
     ]

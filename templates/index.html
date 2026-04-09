@@ -18,6 +18,11 @@
             --bg-side: color-mix(in srgb, {{ bg_color }} 95%, white 5%);
         }
     </style>
+    <!-- Autoplay unlock — invisible 1px video, diplay sebelum JS rotation -->
+    <video id="autoplay-unlocker" muted autoplay playsinline loop
+        style="position:fixed;width:1px;height:1px;opacity:0;pointer-events:none"
+        src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28ybXA0MAAAAA==">
+    </video>
 </head>
 <body>
     <div class="scanlines"></div>
@@ -201,6 +206,22 @@
             </div>
         </nav>
 
+        <!-- AUTOPLAY UNLOCK OVERLAY -->
+        <!-- <div id="autoplay-gate" style="
+            position:fixed; inset:0; z-index:9999;
+            background:rgba(6,10,18,0.92);
+            display:flex; flex-direction:column;
+            align-items:center; justify-content:center;
+            cursor:pointer; gap:1rem;">
+        <svg viewBox="0 0 64 64" width="72" height="72" fill="none">
+            <circle cx="32" cy="32" r="30" stroke="#4ecca3" stroke-width="2"/>
+            <polygon points="24,18 50,32 24,46" fill="#4ecca3"/>
+        </svg>
+        <p style="color:#4ecca3;font-family:'Exo 2',sans-serif;font-size:1.2rem;margin:0;">
+            Tap untuk memulai tampilan
+        </p>
+        </div> -->
+
         <div class="fab-overlay hidden" id="menu-overlay"></div>
     <script>
         window.SIGNAGE_DATA = {
@@ -208,7 +229,7 @@
             advertisements: {{ ads|tojson|safe }},
             agendas:        {{ agendas|tojson|safe }},
             time_off:       "{{ time_off }}",
-            time_on:        "{{ time_on }}"
+            time_on:        "{{ time_on }}",
         };
     </script>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>

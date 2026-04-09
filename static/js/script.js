@@ -8,24 +8,7 @@
    ============================================================ */
 
 'use strict';
-// Di atas STATE — nilai awal dari inject Flask, akan diupdate oleh fetchScheduleConfig
-let SCHED_OFF = window.SIGNAGE_DATA?.time_off || '23:59';
-let SCHED_ON  = window.SIGNAGE_DATA?.time_on  || '07:00';
 
-// Fetch config jadwal dari DB setiap 60 detik
-// Hanya update variabel memory — tidak redirect, tidak ganggu media
-async function fetchScheduleConfig() {
-    try {
-        const resp = await fetch('/api/schedule/status');
-        if (!resp.ok) return;
-        const data = await resp.json();
-        SCHED_OFF = data.time_off || SCHED_OFF;
-        SCHED_ON  = data.time_on  || SCHED_ON;
-        console.log(`[Schedule] Config updated: on=${SCHED_ON} off=${SCHED_OFF}`);
-    } catch (e) {
-        // Gagal fetch → tetap pakai nilai sebelumnya
-    }
-}
 const STATE = {
     templates: window.SIGNAGE_DATA?.templates || [],
     ads:       window.SIGNAGE_DATA?.advertisements || [],
@@ -62,18 +45,103 @@ document.addEventListener('DOMContentLoaded', () => {
     initAgendaClickHandlers();
     initFloatingMenu();
     initAdHandlers();
-    startTemplateRotation();
-    // Sync jadwal dari DB setiap 60 detik — hanya update variabel, tidak redirect
-    fetchScheduleConfig();
-    setInterval(fetchScheduleConfig, 60 * 1000);
+    // initAutoplayGate();
+    //startTemplateRotation();
+    // Tunggu autoplay unlocker, lalu mulai rotation
+    const unlocker = document.getElementById('autoplay-unlocker');
+    if (unlocker) {
+        unlocker.play()
+            .then(() => {
+                console.log('[Autoplay] Unlocked');
+                startTemplateRotation();
+            })
+            .catch(() => {
+                // Flag belum aktif — tetap coba mulai
+                console.warn('[Autoplay] Blocked, starting anyway');
+                startTemplateRotation();
+            });
+    } else {
+        startTemplateRotation();
+    }
 });
 
+function initAutoplayGate() {
+    const gate = document.getElementById('autoplay-gate');
+    if (!gate) {
+        // Tidak ada gate di DOM — langsung mulai
+        startTemplateRotation();
+        return;
+    }
+
+    // Coba silent unlock dulu (tab sudah punya gesture sebelumnya / Chromium flag aktif)
+    const probe = document.createElement('video');
+    probe.muted = true;
+    probe.src   = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28ybXA0MAAAAA==';
+    probe.play()
+        .then(() => {
+            probe.pause();
+            gate.remove();
+            startTemplateRotation();
+            console.log('[Gate] Autoplay diizinkan — langsung mulai');
+        })
+        .catch(() => {
+            // Butuh gesture — tampilkan gate
+            gate.style.display = 'flex';
+            console.log('[Gate] Menunggu gesture pengguna...');
+        });
+
+    const unlock = () => {
+        gate.style.opacity = '0';
+        gate.style.transition = 'opacity 0.4s';
+        setTimeout(() => gate.remove(), 400);
+        startTemplateRotation();
+        console.log('[Gate] Gesture diterima — memulai tampilan');
+    };
+
+    gate.addEventListener('click',      unlock, { once: true });
+    gate.addEventListener('touchstart', unlock, { once: true });
+    gate.addEventListener('keydown',    unlock, { once: true });
+}
+
 /* ============================================================
-   DATE / TIME
+   DATE / TIME + SCHEDULE CHECK (clock-based)
+   Cek jadwal standby setiap detik ke-0 saat menit berganti.
+   Menggunakan nilai dari SIGNAGE_DATA yang di-inject Flask,
+   diperbarui dari server setiap 60 detik via fetchScheduleConfig().
    ============================================================ */
+
+// Nilai jadwal — dari Flask inject, diupdate fetchScheduleConfig
+let SCHED_OFF = window.SIGNAGE_DATA?.time_off || '23:59';
+let SCHED_ON  = window.SIGNAGE_DATA?.time_on  || '00:00';
+
+// Sync jadwal terbaru dari DB setiap 60 detik (hanya update variabel, tidak redirect)
+async function fetchScheduleConfig() {
+    try {
+        const resp = await fetch('/api/schedule/status');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        SCHED_OFF = data.time_off || SCHED_OFF;
+        SCHED_ON  = data.time_on  || SCHED_ON;
+    } catch (e) { /* tetap pakai nilai sebelumnya */ }
+}
+
 function initDateTime() {
     updateDateTime();
     setInterval(updateDateTime, 1000);
+    // Sync jadwal dari DB setiap 60 detik
+    fetchScheduleConfig();
+    setInterval(fetchScheduleConfig, 60 * 1000);
+}
+
+function isDisplayOn(nowMin, onMin, offMin) {
+    if (onMin <= offMin) {
+        // Normal: on=07:00, off=17:00 → ON saat onMin <= nowMin < offMin
+        return nowMin >= onMin && nowMin < offMin;
+    } else {
+        // Overnight: on=17:09, off=17:00 → OFF hanya di celah kecil antara off–on
+        // Contoh: OFF hanya 17:00–17:09, sisanya (17:09–16:59) ON
+        return nowMin >= onMin || nowMin < offMin;
+    }
 }
 
 function updateDateTime() {
@@ -94,7 +162,7 @@ function updateDateTime() {
     if (dayEl)  dayEl.textContent  = days[now.getDay()];
     if (dateEl) dateEl.textContent = months[now.getMonth()] + ' ' + String(now.getDate()).padStart(2,'0');
 
-    // Cek standby via clock — trigger tepat saat detik 0 menit berganti
+    // Cek standby tepat saat detik 0 (menit berganti) — hindari trigger berulang
     if (now.getSeconds() === 0) {
         const nowMin = now.getHours() * 60 + now.getMinutes();
         const [offH, offM] = SCHED_OFF.split(':').map(Number);
@@ -102,8 +170,8 @@ function updateDateTime() {
         const offMin = offH * 60 + offM;
         const onMin  = onH  * 60 + onM;
 
-        if (nowMin < onMin || nowMin >= offMin) {
-            console.log(`[Schedule] Masuk standby — now=${nowMin} on=${onMin} off=${offMin}`);
+        if (!isDisplayOn(nowMin, onMin, offMin)) {
+            console.log(`[Schedule] Masuk standby — now=${h}:${m} on=${SCHED_ON} off=${SCHED_OFF}`);
             window.location.href = '/';
         }
     }
@@ -317,28 +385,35 @@ function showVideoTemplate(display, item, index) {
 
     display.appendChild(vid);
 
-    // Explicit play() — jangan hanya andalkan autoplay attribute
-    // Chromium di Raspberry Pi kadang abaikan autoplay tapi hormati play()
-    const playPromise = vid.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(err => {
-            // Autoplay diblokir browser — kemungkinan policy strict
-            // Solusi: tambah --autoplay-policy=no-user-gesture-required ke Chromium flags
-            console.warn('[Video] Autoplay blocked:', err.name, '—', err.message);
-            console.warn('[Video] Tambah flag Chromium: --autoplay-policy=no-user-gesture-required');
-
-            // Fallback: tunggu interaksi user pertama lalu play
-            const forcePlay = () => {
-                vid.play().catch(() => {});
-                document.removeEventListener('click',      forcePlay);
-                document.removeEventListener('keydown',    forcePlay);
-                document.removeEventListener('touchstart', forcePlay);
-            };
-            document.addEventListener('click',      forcePlay, { once: true });
-            document.addEventListener('keydown',    forcePlay, { once: true });
-            document.addEventListener('touchstart', forcePlay, { once: true });
+    vid.play()
+        .then(() => {
+            // Setelah gate, unmute aman
+            vid.muted  = false;
+            vid.volume = 1.0;
+        })
+        .catch(err => {
+            // Jika masih blocked (mis. tidak ada gate), tetap lanjut muted
+            console.warn('[Video] play() blocked:', err.message);
         });
-    }
+
+    // play() explicit — lebih reliable dari autoplay attribute di Raspberry Pi
+    // vid.play()
+    //     .then(() => {
+    //         // .then() = browser sudah commit play, aman untuk unmute
+    //         // Ini satu-satunya tempat yang benar untuk unmute:
+    //         // - Bukan di 'playing' event  → bisa trigger policy re-evaluation
+    //         // - Bukan di 'volumechange'   → infinite loop
+    //         // - Bukan sebelum play()      → autoplay langsung diblokir
+    //         vid.muted  = false;
+    //         vid.volume = 1.0;
+    //     })
+    //     .catch(err => {
+    //         // Autoplay masih diblokir (policy strict / flag belum dipasang)
+    //         console.warn('[Video] play() blocked:', err.message);
+    //         console.warn('[Video] Pastikan Chromium flag sudah dipasang:');
+    //         console.warn('[Video] --autoplay-policy=no-user-gesture-required');
+    //         // Video tetap berjalan (muted), tidak perlu fallback lain
+    //     });
 }
 
 function advanceTemplate(fromIndex) {
@@ -389,7 +464,7 @@ function buildImg(src) {
     const img = document.createElement('img');
     img.src = src;
     img.className = 'media-el';
-    img.onerror = () => { img.src = '/static/uploads/placeholder.jpg'; };
+    img.onerror = () => { img.style.display = 'none'; };
     return img;
 }
 
@@ -398,7 +473,7 @@ function buildVideo(src, loop = false) {
     vid.src         = src;
     vid.className   = 'media-el';
     vid.dataset.type = 'video';
-    vid.muted       = false;     // tetap muted — suara dikontrol oleh Chromium flag
+    vid.muted       = true;     // mulai muted agar autoplay tidak diblokir
     vid.loop        = loop;
     vid.playsInline = true;
     vid.preload     = 'auto';
