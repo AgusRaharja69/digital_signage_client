@@ -9,6 +9,28 @@
 
 'use strict';
 
+/* ============================================================
+   PERIODIC RELOAD — cegah OOM error code 5 di Raspberry Pi
+   Chromium reload otomatis setiap RELOAD_INTERVAL_MS.
+   Default: 6 jam. Hanya reload saat tidak ada video yang play.
+   ============================================================ */
+const RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000;  // 6 jam
+ 
+function schedulePeriodicReload() {
+    setTimeout(() => {
+        // Hanya reload saat tidak ada video yang sedang play
+        const isVideoPlaying = document.body.classList.contains('video-playing');
+        if (!isVideoPlaying) {
+            console.log('[Reload] Periodic reload — mencegah OOM');
+            window.location.reload();
+        } else {
+            // Video sedang play — tunda 5 menit lagi
+            console.log('[Reload] Video sedang play, tunda 5 menit');
+            setTimeout(() => window.location.reload(), 5 * 60 * 1000);
+        }
+    }, RELOAD_INTERVAL_MS);
+}
+
 const STATE = {
     templates: window.SIGNAGE_DATA?.templates || [],
     ads:       window.SIGNAGE_DATA?.advertisements || [],
@@ -63,6 +85,9 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         startTemplateRotation();
     }
+
+    // Auto-reload setiap 6 jam untuk cegah OOM (Aw Snap error code 5)
+    schedulePeriodicReload();
 });
 
 function initAutoplayGate() {

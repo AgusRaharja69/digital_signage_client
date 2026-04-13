@@ -194,7 +194,7 @@
       "value":       null,
       "media_type":  "video",
       "media_path":  "static/uploads/profil.mp4",
-      "media_url":   "https://server.example.com/media/profil.mp4",
+      "media_url":   "https://drive.google.com/file/d/1sjKktugGwDFzuXRlF5zWZilXyy1e73JP/view?usp=drive_link",
       "duration":    null,
       "display_order": 2,
       "trigger_time":  null,

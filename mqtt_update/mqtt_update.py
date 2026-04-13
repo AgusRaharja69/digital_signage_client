@@ -32,7 +32,7 @@ KEEPALIVE = int(_cfg['DEFAULT']['KAI'])
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'photostation.db')
 
-TOPIC = "signage/sma-n-1-denpasar/content"
+TOPIC = "signage/sma-n-1-tabanan"
 
 
 def get_db():

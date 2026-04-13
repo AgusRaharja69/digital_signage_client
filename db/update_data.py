@@ -85,15 +85,15 @@ def update_agendas(c):
 def update_config(c):
     """Update nilai-nilai config tertentu (tidak menghapus key lain)."""
     config_updates = {
-        'device_id':           'client_1',
-        'mqtt_topic':          'signage/sma-n-1-tabanan/',
-        'barcode_boot':        'static/imgs/barcode.png',
-        'school_name':         'SMAN 1 TABANAN',
-        'wifi_ssid':           'awlr_wifi',
-        'wifi_password':       'Warmadewa2025',
-        'time_off': '17:00',
-        'time_on': '07:30',
-        'photo_drive_webhook': 'https://script.google.com/macros/s/AKfycbwp5U6C7j9BTBrOjYIXgEiXJ2XJn6N1u9Ex6SUU3ccMQM4FaD9GDye2haZ7Pp4KOboRMg/exec',
+        # 'device_id':           'client_1',
+        # 'mqtt_topic':          'signage/sma-n-1-tabanan/',
+        # 'barcode_boot':        'static/imgs/barcode.png',
+        # 'school_name':         'SMAN 1 TABANAN',
+        # 'wifi_ssid':           'awlr_wifi',
+        # 'wifi_password':       'Warmadewa2025',
+        # 'time_off': '17:00',
+        # 'time_on': '07:30',
+        'photo_drive_webhook': 'https://script.google.com/macros/s/AKfycbxpVXvud9gSktZa0jZ-U5HQ68488uGufcKIqZam-g4kXoGjv1CXk84fXmyIp3dUa4Ll/exec',
     }
 
     for key, value in config_updates.items():

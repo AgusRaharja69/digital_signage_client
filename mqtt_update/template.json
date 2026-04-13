@@ -1,0 +1,25 @@
+{
+    "template_add_video": {
+      "id":          "uuid-...",
+      "content_id":  null,
+      "type":        "template",
+      "action":      "add",
+      "publisher":   "campus",
+      "title":       "Video Profil Sekolah",
+      "content":     null,
+      "description": null,
+      "key":         null,
+      "value":       null,
+      "media_type":  "video",
+      "media_path":  "static/uploads/profil.mp4",
+      "media_url":   "https://drive.google.com/file/d/1sjKktugGwDFzuXRlF5zWZilXyy1e73JP/view?usp=drive_link",
+      "duration":    null,
+      "display_order": 1,
+      "trigger_time":  null,
+      "event_date":  null,
+      "event_time":  null,
+      "position":    null,
+      "is_active":   1,
+      "_sentAt":     "2026-02-25T17:38:14.545Z"
+    }
+}
