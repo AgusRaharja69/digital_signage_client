@@ -14,21 +14,24 @@
    Chromium reload otomatis setiap RELOAD_INTERVAL_MS.
    Default: 6 jam. Hanya reload saat tidak ada video yang play.
    ============================================================ */
-const RELOAD_INTERVAL_MS = 6 * 60 * 60 * 1000;  // 6 jam
- 
-function schedulePeriodicReload() {
-    setTimeout(() => {
-        // Hanya reload saat tidak ada video yang sedang play
+const RESTART_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 jam
+
+function schedulePeriodicRestart() {
+    setTimeout(async () => {
         const isVideoPlaying = document.body.classList.contains('video-playing');
-        if (!isVideoPlaying) {
-            console.log('[Reload] Periodic reload — mencegah OOM');
-            window.location.reload();
-        } else {
-            // Video sedang play — tunda 5 menit lagi
-            console.log('[Reload] Video sedang play, tunda 5 menit');
-            setTimeout(() => window.location.reload(), 5 * 60 * 1000);
+        if (isVideoPlaying) {
+            // Tunda sampai video selesai, cek lagi 1 menit
+            console.log('[Restart] Video sedang play, tunda 1 menit');
+            setTimeout(schedulePeriodicRestart, 60 * 1000);
+            return;
         }
-    }, RELOAD_INTERVAL_MS);
+        console.log('[Restart] Meminta server restart Chromium...');
+        try {
+            await fetch('/api/restart-browser', { method: 'POST' });
+        } catch(e) {
+            // Normal — Chromium sudah mati sebelum response diterima
+        }
+    }, RESTART_INTERVAL_MS);
 }
 
 const STATE = {
@@ -87,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Auto-reload setiap 6 jam untuk cegah OOM (Aw Snap error code 5)
-    schedulePeriodicReload();
+    schedulePeriodicRestart();
 });
 
 function initAutoplayGate() {

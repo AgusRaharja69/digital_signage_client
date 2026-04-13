@@ -11,6 +11,7 @@ from datetime import datetime
 import sqlite3
 import base64
 import json
+import subprocess
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
@@ -180,6 +181,18 @@ def index():
         import traceback; traceback.print_exc()
         return f"<h1>Error</h1><p>{e}</p>", 500
 
+@app.route('/api/restart-browser', methods=['POST'])
+def restart_browser():
+    """Restart Chromium — dipanggil dari JS setelah deteksi memory tinggi"""
+    try:
+        subprocess.Popen(
+            ['bash', '-c', 'sleep 2 && pkill -f chromium && sleep 3 && bash /home/pi5/start-browser.sh'],
+            shell=False
+        )
+        return jsonify({'success': True, 'message': 'Browser restarting in 2s'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    
 # ── Gallery ───────────────────────────────────────────────────────────────────
 @app.route('/gallery')
 def gallery():
