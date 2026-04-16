@@ -1,2 +1,5 @@
 *.db
 *.ini
+*.reload_signal
+uploads/*
+*.log
