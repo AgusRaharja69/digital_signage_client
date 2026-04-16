@@ -162,128 +162,261 @@ def disconnect_wifi():
     except Exception:
         pass
 
+def delete_existing_connection(ssid: str):
+    """Hapus koneksi lama agar tidak konflik"""
+    try:
+        subprocess.run(
+            ['nmcli', '-t', '-f', 'NAME', 'connection', 'show'],
+            capture_output=True, text=True
+        )
+        subprocess.run(
+            ['nmcli', 'connection', 'delete', ssid],
+            capture_output=True
+        )
+        log.info(f"🧹 Hapus connection lama: '{ssid}'")
+    except Exception:
+        pass
+
+# def connect_to_wifi(ssid: str, password: str, retries: int = MAX_RETRIES) -> bool:
+#     """
+#     Coba connect ke SSID dengan password.
+#     Return True jika berhasil.
+#     """
+#     if not ssid:
+#         return False
+
+#     log.info(f"Mencoba connect ke: '{ssid}'")
+
+#     # Cek apakah SSID tersedia
+#     available = get_available_networks()
+#     if available and ssid not in available:
+#         log.warning(f"SSID '{ssid}' tidak ditemukan. Tersedia: {available[:5]}")
+
+#     for attempt in range(1, retries + 1):
+#         log.info(f"  Percobaan {attempt}/{retries}...")
+#         try:
+#             # Coba connect dengan nmcli
+#             # --ask diabaikan, password dari argumen
+#             result = subprocess.run(
+#                 ['nmcli', 'dev', 'wifi', 'connect', ssid,
+#                  'password', password, 'ifname', 'wlan0'],
+#                 capture_output=True, text=True, timeout=30
+#             )
+
+#             output = result.stdout + result.stderr
+#             log.debug(f"  nmcli output: {output[:200]}")
+
+#             if result.returncode == 0 or 'successfully activated' in output.lower():
+#                 time.sleep(3)  # tunggu IP assigned
+#                 current = get_current_ssid()
+#                 if current == ssid:
+#                     log.info(f"  ✅ Connected ke '{ssid}'")
+#                     return True
+#                 else:
+#                     log.warning(f"  nmcli OK tapi SSID saat ini: '{current}'")
+
+#             elif 'already active' in output.lower() or 'already exist' in output.lower():
+#                 log.info(f"  ✅ Sudah terkoneksi ke '{ssid}'")
+#                 return True
+
+#             else:
+#                 log.warning(f"  Connect gagal: {output[:100]}")
+
+#         except subprocess.TimeoutExpired:
+#             log.warning(f"  Timeout percobaan {attempt}")
+#         except Exception as e:
+#             log.error(f"  Error: {e}")
+
+#         if attempt < retries:
+#             log.info(f"  Tunggu {RETRY_DELAY}s sebelum retry...")
+#             time.sleep(RETRY_DELAY)
+
+#     return False
 
 def connect_to_wifi(ssid: str, password: str, retries: int = MAX_RETRIES) -> bool:
-    """
-    Coba connect ke SSID dengan password.
-    Return True jika berhasil.
-    """
     if not ssid:
         return False
 
-    log.info(f"Mencoba connect ke: '{ssid}'")
+    password = (password or "").strip()
 
-    # Cek apakah SSID tersedia
-    available = get_available_networks()
-    if available and ssid not in available:
-        log.warning(f"SSID '{ssid}' tidak ditemukan. Tersedia: {available[:5]}")
+    log.info(f"Mencoba connect ke: '{ssid}' | PASS LEN: {len(password)}")
 
     for attempt in range(1, retries + 1):
         log.info(f"  Percobaan {attempt}/{retries}...")
+
         try:
-            # Coba connect dengan nmcli
-            # --ask diabaikan, password dari argumen
+            # 🔥 HAPUS CONNECTION LAMA (fix key-mgmt error)
+            delete_existing_connection(ssid)
+            if password:
+                cmd = [
+                    'nmcli',
+                    'device', 'wifi', 'connect', ssid,
+                    'password', password,
+                    'ifname', 'wlan0',
+                    'name', ssid
+                ]
+            else:
+                cmd = [
+                    'nmcli',
+                    'device', 'wifi', 'connect', ssid,
+                    'ifname', 'wlan0',
+                    'name', ssid
+                ]
+
             result = subprocess.run(
-                ['nmcli', 'dev', 'wifi', 'connect', ssid,
-                 'password', password, 'ifname', 'wlan0'],
-                capture_output=True, text=True, timeout=30
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
             )
 
-            output = result.stdout + result.stderr
-            log.debug(f"  nmcli output: {output[:200]}")
+            output = (result.stdout + result.stderr).lower()
 
-            if result.returncode == 0 or 'successfully activated' in output.lower():
-                time.sleep(3)  # tunggu IP assigned
+            log.debug(f"nmcli output: {output[:200]}")
+
+            if result.returncode == 0 or 'successfully activated' in output:
+                time.sleep(3)
                 current = get_current_ssid()
+
                 if current == ssid:
-                    log.info(f"  ✅ Connected ke '{ssid}'")
+                    log.info(f"✅ Connected ke '{ssid}'")
                     return True
                 else:
-                    log.warning(f"  nmcli OK tapi SSID saat ini: '{current}'")
+                    log.warning(f"Connected tapi SSID sekarang '{current}'")
 
-            elif 'already active' in output.lower() or 'already exist' in output.lower():
-                log.info(f"  ✅ Sudah terkoneksi ke '{ssid}'")
+            elif 'already active' in output:
+                log.info(f"✅ Sudah terkoneksi '{ssid}'")
                 return True
 
             else:
-                log.warning(f"  Connect gagal: {output[:100]}")
+                log.warning(f"❌ Gagal: {output[:120]}")
 
         except subprocess.TimeoutExpired:
-            log.warning(f"  Timeout percobaan {attempt}")
+            log.warning("⏱ Timeout connect")
         except Exception as e:
-            log.error(f"  Error: {e}")
+            log.error(f"Error connect: {e}")
 
-        if attempt < retries:
-            log.info(f"  Tunggu {RETRY_DELAY}s sebelum retry...")
-            time.sleep(RETRY_DELAY)
+        time.sleep(RETRY_DELAY)
 
     return False
 
+
+# def ensure_connection() -> bool:
+#     """
+#     Pastikan Raspi terkoneksi ke WiFi yang benar.
+#     Urutan:
+#       1. Cek apakah sudah online
+#       2. Coba wifi_ssid dari database
+#       3. Coba SSID fallback dari config.ini
+#     Return True jika berhasil connect ke salah satu.
+#     """
+#     # Cek koneksi saat ini
+#     current_ssid = get_current_ssid()
+#     if current_ssid and is_internet_available():
+#         log.info(f"✅ Online — SSID: '{current_ssid}'")
+#         update_wifi_status('connected', current_ssid)
+#         return True
+
+#     if current_ssid:
+#         log.warning(f"⚠ Terkoneksi ke '{current_ssid}' tapi tidak ada internet")
+#     else:
+#         log.warning("⚠ Tidak terkoneksi ke WiFi apapun")
+
+#     # Baca config dari database
+#     db_ssid, db_pass = get_wifi_config()
+#     log.info(f"Config DB → SSID: '{db_ssid}'")
+
+#     # Coba SSID dari database
+#     if db_ssid:
+#         if current_ssid != db_ssid:
+#             disconnect_wifi()
+
+#         if connect_to_wifi(db_ssid, db_pass):
+#             time.sleep(3)
+#             if is_internet_available():
+#                 log.info(f"✅ Internet OK via '{db_ssid}'")
+#                 update_wifi_status('connected', db_ssid)
+#                 return True
+#             else:
+#                 log.warning(f"Connected ke '{db_ssid}' tapi tidak ada internet")
+#         else:
+#             log.warning(f"Gagal connect ke '{db_ssid}'")
+#     else:
+#         log.info("Tidak ada wifi_ssid di database")
+
+#     # Coba fallback SSID dari config.ini
+#     if FALLBACK_SSID:
+#         log.info(f"Mencoba fallback SSID: '{FALLBACK_SSID}'")
+#         disconnect_wifi()
+
+#         if connect_to_wifi(FALLBACK_SSID, FALLBACK_PASS):
+#             time.sleep(3)
+#             if is_internet_available():
+#                 log.info(f"✅ Internet OK via fallback '{FALLBACK_SSID}'")
+#                 update_wifi_status('connected_fallback', FALLBACK_SSID)
+#                 return True
+#             else:
+#                 log.warning(f"Connected ke fallback '{FALLBACK_SSID}' tapi tidak ada internet")
+#         else:
+#             log.warning(f"Gagal connect ke fallback '{FALLBACK_SSID}'")
+#     else:
+#         log.info("Tidak ada FallbackSSID di config.ini")
+
+#     log.error("❌ Semua WiFi gagal")
+#     update_wifi_status('disconnected', '')
+#     return False
 
 def ensure_connection() -> bool:
     """
-    Pastikan Raspi terkoneksi ke WiFi yang benar.
-    Urutan:
-      1. Cek apakah sudah online
-      2. Coba wifi_ssid dari database
-      3. Coba SSID fallback dari config.ini
-    Return True jika berhasil connect ke salah satu.
+    Loop terus sampai berhasil connect
+    Prioritas: DB → fallback → ulang terus
     """
-    # Cek koneksi saat ini
-    current_ssid = get_current_ssid()
-    if current_ssid and is_internet_available():
-        log.info(f"✅ Online — SSID: '{current_ssid}'")
-        update_wifi_status('connected', current_ssid)
-        return True
 
-    if current_ssid:
-        log.warning(f"⚠ Terkoneksi ke '{current_ssid}' tapi tidak ada internet")
-    else:
-        log.warning("⚠ Tidak terkoneksi ke WiFi apapun")
+    while True:
+        current_ssid = get_current_ssid()
 
-    # Baca config dari database
-    db_ssid, db_pass = get_wifi_config()
-    log.info(f"Config DB → SSID: '{db_ssid}'")
+        if current_ssid and is_internet_available():
+            log.info(f"✅ Online — SSID: '{current_ssid}'")
+            update_wifi_status('connected', current_ssid)
+            return True
 
-    # Coba SSID dari database
-    if db_ssid:
-        if current_ssid != db_ssid:
+        if current_ssid:
+            log.warning(f"⚠ '{current_ssid}' tidak ada internet")
+        else:
+            log.warning("⚠ Tidak terkoneksi WiFi")
+
+        db_ssid, db_pass = get_wifi_config()
+
+        wifi_list = []
+
+        if db_ssid:
+            wifi_list.append((db_ssid, db_pass, 'db'))
+
+        if FALLBACK_SSID and FALLBACK_SSID != db_ssid:
+            wifi_list.append((FALLBACK_SSID, FALLBACK_PASS, 'fallback'))
+
+        if not wifi_list:
+            log.error("Tidak ada WiFi untuk dicoba")
+            time.sleep(RETRY_DELAY)
+            continue
+
+        for ssid, pwd, source in wifi_list:
+            log.info(f"➡️ Coba ({source}): '{ssid}'")
+
             disconnect_wifi()
 
-        if connect_to_wifi(db_ssid, db_pass):
-            time.sleep(3)
-            if is_internet_available():
-                log.info(f"✅ Internet OK via '{db_ssid}'")
-                update_wifi_status('connected', db_ssid)
-                return True
-            else:
-                log.warning(f"Connected ke '{db_ssid}' tapi tidak ada internet")
-        else:
-            log.warning(f"Gagal connect ke '{db_ssid}'")
-    else:
-        log.info("Tidak ada wifi_ssid di database")
+            if connect_to_wifi(ssid, pwd):
+                time.sleep(3)
 
-    # Coba fallback SSID dari config.ini
-    if FALLBACK_SSID:
-        log.info(f"Mencoba fallback SSID: '{FALLBACK_SSID}'")
-        disconnect_wifi()
+                if is_internet_available():
+                    log.info(f"🎉 Internet OK via '{ssid}'")
+                    update_wifi_status(f'connected_{source}', ssid)
+                    return True
+                else:
+                    log.warning(f"Tersambung ke '{ssid}' tapi tidak ada internet")
 
-        if connect_to_wifi(FALLBACK_SSID, FALLBACK_PASS):
-            time.sleep(3)
-            if is_internet_available():
-                log.info(f"✅ Internet OK via fallback '{FALLBACK_SSID}'")
-                update_wifi_status('connected_fallback', FALLBACK_SSID)
-                return True
-            else:
-                log.warning(f"Connected ke fallback '{FALLBACK_SSID}' tapi tidak ada internet")
-        else:
-            log.warning(f"Gagal connect ke fallback '{FALLBACK_SSID}'")
-    else:
-        log.info("Tidak ada FallbackSSID di config.ini")
-
-    log.error("❌ Semua WiFi gagal")
-    update_wifi_status('disconnected', '')
-    return False
+        log.warning(f"🔁 Semua gagal, retry lagi {RETRY_DELAY}s...")
+        time.sleep(RETRY_DELAY)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
