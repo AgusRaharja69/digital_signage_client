@@ -67,6 +67,7 @@ USERNAME  = _cfg['DEFAULT'].get('UserID', '')
 PASSWORD  = _cfg['DEFAULT'].get('Pass',   '')
 KEEPALIVE = int(_cfg['DEFAULT'].get('KAI', '60'))
 TOPIC     = _cfg['DEFAULT'].get('Topic',  'signage/default')
+# TOPIC = "signage/sma-n-1-tabanan/"
 
 DB_PATH = os.path.abspath(os.path.join(BASE_DIR, '..', 'db', 'photostation.db'))
 
@@ -103,24 +104,71 @@ def maybe_download_media(p: dict) -> str:
     full_path = os.path.normpath(full_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-    try:
-        import urllib.request
-        import urllib.error
-        print(f'[MQTT] Download: {media_url}')
-        print(f'[MQTT]        → {media_path}')
+    # try:
+    #     import urllib.request
+    #     import urllib.error
+    #     print(f'[MQTT] Download: {media_url}')
+    #     print(f'[MQTT]        → {media_path}')
 
-        req = urllib.request.Request(
-            media_url,
-            headers={'User-Agent': 'DigitalSignage/2.0'}
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            with open(full_path, 'wb') as f:
-                f.write(resp.read())
-        print(f'[MQTT] Download OK ({os.path.getsize(full_path)//1024} KB)')
+    #     req = urllib.request.Request(
+    #         media_url,
+    #         headers={'User-Agent': 'DigitalSignage/2.0'}
+    #     )
+    #     with urllib.request.urlopen(req, timeout=30) as resp:
+    #         with open(full_path, 'wb') as f:
+    #             f.write(resp.read())
+    #     print(f'[MQTT] Download OK ({os.path.getsize(full_path)//1024} KB)')
 
-    except Exception as e:
-        print(f'[MQTT] Download gagal: {e}')
-        media_path = p.get('media_path') or ''
+    # except Exception as e:
+    #     print(f'[MQTT] Download gagal: {e}')
+    #     media_path = p.get('media_path') or ''
+
+    def _do_download():
+        """Download di thread terpisah agar tidak block MQTT loop."""
+        try:
+            import urllib.request
+            import urllib.error
+
+            print(f'[MQTT] Download start: {os.path.basename(media_url)}')
+
+            req = urllib.request.Request(
+                media_url,
+                headers={'User-Agent': 'DigitalSignage/2.0'}
+            )
+
+            # Timeout besar untuk file besar — 10 menit
+            with urllib.request.urlopen(req, timeout=800) as resp:
+                total = int(resp.headers.get('Content-Length', 0))
+                downloaded = 0
+                chunk_size = 512 * 1024  # 512KB per chunk
+
+                with open(full_path, 'wb') as f:
+                    while True:
+                        chunk = resp.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+                        # Progress setiap 5MB
+                        if total and downloaded % (5 * 1024 * 1024) < chunk_size:
+                            pct = downloaded / total * 100
+                            print(f'[MQTT] Download {pct:.0f}% ({downloaded//1024//1024}MB/{total//1024//1024}MB)')
+
+            size_mb = os.path.getsize(full_path) / 1024 / 1024
+            print(f'[MQTT] ✅ Download selesai: {media_path} ({size_mb:.1f} MB)')
+
+        except Exception as e:
+            print(f'[MQTT] ❌ Download gagal: {e}')
+            # Hapus file parsial jika ada
+            if os.path.exists(full_path):
+                os.remove(full_path)
+
+    # Jalankan download di background thread
+    # MQTT loop tidak terputus meski file besar
+    import threading
+    t = threading.Thread(target=_do_download, daemon=True)
+    t.start()
 
     return media_path
 

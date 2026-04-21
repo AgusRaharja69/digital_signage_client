@@ -29,7 +29,8 @@ BROKER    = _cfg['DEFAULT'].get('Broker',  'broker.hivemq.com')
 PORT      = int(_cfg['DEFAULT'].get('Port', '1883'))
 USERNAME  = _cfg['DEFAULT'].get('UserID', '')
 PASSWORD  = _cfg['DEFAULT'].get('Pass',   '')
-TOPIC     = _cfg['DEFAULT'].get('Topic',  'signage/default')
+# TOPIC     = _cfg['DEFAULT'].get('Topic',  'signage/default')
+TOPIC = "signage/sma-n-1-kuta-utara/"
 
 # ── Warna terminal ────────────────────────────────────────────────────────────
 GREEN  = '\033[92m'
@@ -273,7 +274,20 @@ PAYLOADS = {
             "id":        _uid(),
             "type":      "config",
             "key":       "wifi_ssid",
-            "value":     "NamaWiFiBaru",
+            "value":     "SMAN 1 KUTA UTARA",
+            "action":    "update",
+            "publisher": "admin",
+            "_sentAt":   _ts(),
+        }
+    },
+
+    'config_wifi_pass': {
+        'name': 'Config — Update WiFi Pass',
+        'payload': {
+            "id":        _uid(),
+            "type":      "config",
+            "key":       "wifi_password",
+            "value":     "sakura86",
             "action":    "update",
             "publisher": "admin",
             "_sentAt":   _ts(),
