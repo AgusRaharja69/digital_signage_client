@@ -30,7 +30,7 @@ PORT      = int(_cfg['DEFAULT'].get('Port', '1883'))
 USERNAME  = _cfg['DEFAULT'].get('UserID', '')
 PASSWORD  = _cfg['DEFAULT'].get('Pass',   '')
 # TOPIC     = _cfg['DEFAULT'].get('Topic',  'signage/default')
-TOPIC = "signage/sma-n-1-kuta-utara/"
+TOPIC = "signage/sma-n-2-mengwi/"
 
 # ── Warna terminal ────────────────────────────────────────────────────────────
 GREEN  = '\033[92m'
@@ -274,7 +274,7 @@ PAYLOADS = {
             "id":        _uid(),
             "type":      "config",
             "key":       "wifi_ssid",
-            "value":     "SMAN 1 KUTA UTARA",
+            "value":     "SMAN 2 MENGWI",
             "action":    "update",
             "publisher": "admin",
             "_sentAt":   _ts(),
@@ -287,7 +287,7 @@ PAYLOADS = {
             "id":        _uid(),
             "type":      "config",
             "key":       "wifi_password",
-            "value":     "sakura86",
+            "value":     "",
             "action":    "update",
             "publisher": "admin",
             "_sentAt":   _ts(),

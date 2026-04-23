@@ -315,28 +315,20 @@ def handle_template(p: dict, action: str) -> str:
     media_path = maybe_download_media(p)
     conn = get_db()
     try:
-        if action == 'add':
-            conn.execute('''
-                INSERT INTO templates
-                    (template_name, template_type, file_path,
-                     duration, display_order, is_active)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                p.get('title', 'Template Baru'),
-                p.get('media_type', 'image'),
-                media_path,
-                p.get('duration', 10),
-                p.get('display_order', 99),
-                p.get('is_active', 1),
-            ))
+        cid      = p.get('content_id')
+        existing = conn.execute('SELECT id FROM templates WHERE id=?', (cid,)).fetchone() if cid else None
+
+        if action == 'delete':
+            if not cid:
+                return "template delete gagal: content_id null"
+            conn.execute('UPDATE templates SET is_active=0 WHERE id=?', (cid,))
             conn.commit()
             trigger_reload()
-            return f"template added: \"{p.get('title')}\""
+            return f"template {cid} deleted"
 
-        elif action == 'update':
-            cid = p.get('content_id')
-            if not cid:
-                return "template update gagal: content_id null"
+        # add / update / apapun → UPSERT
+        if cid and existing:
+            # Update row yang sudah ada
             conn.execute('''
                 UPDATE templates SET
                     template_name = COALESCE(?, template_name),
@@ -355,16 +347,37 @@ def handle_template(p: dict, action: str) -> str:
             trigger_reload()
             return f"template {cid} updated"
 
-        elif action == 'delete':
-            cid = p.get('content_id')
-            if not cid:
-                return "template delete gagal: content_id null"
-            conn.execute('UPDATE templates SET is_active=0 WHERE id=?', (cid,))
+        else:
+            # Insert baru — pakai content_id sebagai id jika ada
+            if cid:
+                conn.execute('''
+                    INSERT INTO templates (id, template_name, template_type, file_path, duration, display_order, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    cid,
+                    p.get('title', 'Template Baru'),
+                    p.get('media_type', 'image'),
+                    media_path,
+                    p.get('duration', 10),
+                    p.get('display_order', 99),
+                    p.get('is_active', 1),
+                ))
+            else:
+                conn.execute('''
+                    INSERT INTO templates (template_name, template_type, file_path, duration, display_order, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    p.get('title', 'Template Baru'),
+                    p.get('media_type', 'image'),
+                    media_path,
+                    p.get('duration', 10),
+                    p.get('display_order', 99),
+                    p.get('is_active', 1),
+                ))
             conn.commit()
             trigger_reload()
-            return f"template {cid} deleted"
+            return f"template {cid or 'new'} inserted"
 
-        return f"template: action '{action}' tidak dikenal"
     finally:
         conn.close()
 
